@@ -8,3 +8,4 @@ coverage/
 !.env.example
 .aistudio/
 bun.lock
+.data/

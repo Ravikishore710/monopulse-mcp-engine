@@ -9,6 +9,8 @@ interface CliPanelProps {
 
 export function CliPanel({ wireLog, callerRole, onRefreshState }: CliPanelProps) {
   const [cliInput, setCliInput] = useState<string>('monopulse mcp list');
+  const [wireFilterStatus, setWireFilterStatus] = useState<string>('ALL');
+  const [wireSearch, setWireSearch] = useState<string>('');
   const [cliHistory, setCliHistory] = useState<
     { command: string; exitCode: number; output: string; timestamp: string }[]
   >([
@@ -16,12 +18,12 @@ export function CliPanel({ wireLog, callerRole, onRefreshState }: CliPanelProps)
       command: 'monopulse help',
       exitCode: 0,
       timestamp: '15:22:00 UTC',
-      output: `MonoPulse Operations Engine CLI (v3.4.0-MCP)
+      output: `MonoPulse Operations Engine CLI (v3.7.0-MCP)
 Type or click a preset command below to execute directly against the backend JSON-RPC & webhook bus:
   monopulse mcp list                           List all 6 custom MCP servers and 28 deterministic tools
   monopulse rbac test-unauthorized             Verify protocol-level RBAC & SQL DML rejection
   monopulse webhook emit ledger                Trigger background pre-computation & stage 1-Click Approval
-  monopulse memory search "PgBouncer lock"     Run pgvector cosine similarity & prompt injection preview
+  monopulse memory search "PgBouncer lock"     Run Hybrid RRF + pgvector cosine similarity search
   monopulse kaggle distill evt-ambient-901     Offload trajectory distillation to Kaggle GPU bridge`
     }
   ]);
@@ -54,6 +56,19 @@ Type or click a preset command below to execute directly against the backend JSO
     }
   };
 
+  const filteredWireLog = wireLog.filter((wf) => {
+    if (wireFilterStatus !== 'ALL' && wf.status !== wireFilterStatus) return false;
+    if (
+      wireSearch.trim() &&
+      !`${wf.toolName} ${wf.serverId} ${wf.callerRole} ${wf.frameId}`
+        .toLowerCase()
+        .includes(wireSearch.trim().toLowerCase())
+    ) {
+      return false;
+    }
+    return true;
+  });
+
   return (
     <div className="space-y-6">
       <div className="border-b border-[#1F2937] pb-4">
@@ -61,7 +76,7 @@ Type or click a preset command below to execute directly against the backend JSO
           04. Live CLI Harness &amp; JSON-RPC 2.0 Wire Frame Inspector
         </h1>
         <p className="text-xs text-[#9CA3AF] mt-1">
-          Execute headless MonoPulse CLI commands against the backend engine and inspect raw JSON-RPC 2.0 protocol frames.
+          Execute headless MonoPulse CLI commands against the backend engine and filter raw JSON-RPC 2.0 protocol frames.
         </p>
       </div>
 
@@ -135,14 +150,36 @@ Type or click a preset command below to execute directly against the backend JSO
         <div className="xl:col-span-5 border border-[#1F2937] bg-[#111827] rounded-lg p-5 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-[#F9FAFB]">
-              JSON-RPC 2.0 Protocol Wire Frames ({wireLog.length})
+              JSON-RPC 2.0 Protocol Wire Frames ({filteredWireLog.length}/{wireLog.length})
             </h2>
             <span className="text-xs font-mono text-[#9CA3AF]">stdio/http-rpc</span>
           </div>
 
-          {wireLog.length === 0 ? (
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              value={wireSearch}
+              onChange={(e) => setWireSearch(e.target.value)}
+              placeholder="Filter by tool, server, or role..."
+              className="flex-1 bg-[#0B0F17] border border-[#1F2937] rounded px-2.5 py-1.5 text-xs font-mono text-[#F9FAFB] focus:outline-none"
+            />
+            <select
+              aria-label="Filter wire frames by status"
+              value={wireFilterStatus}
+              onChange={(e) => setWireFilterStatus(e.target.value)}
+              className="bg-[#0B0F17] border border-[#1F2937] rounded px-2.5 py-1.5 text-xs font-mono text-[#F9FAFB]"
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="SUCCESS">SUCCESS</option>
+              <option value="RBAC_DENIED">RBAC_DENIED</option>
+              <option value="SQL_MUTATION_BLOCKED">SQL_MUTATION_BLOCKED</option>
+              <option value="SCHEMA_INVALID">SCHEMA_INVALID</option>
+            </select>
+          </div>
+
+          {filteredWireLog.length === 0 ? (
             <div className="p-6 border border-[#1F2937] bg-[#0B0F17] rounded text-center space-y-2">
-              <p className="text-xs text-[#9CA3AF]">No MCP tool frames recorded in this session yet.</p>
+              <p className="text-xs text-[#9CA3AF]">No MCP wire frames match the current filter.</p>
               <button
                 onClick={() => handleRunCliCommand('monopulse rbac test-unauthorized')}
                 className="px-3 py-1.5 bg-[#2563EB] text-white text-xs font-medium rounded cursor-pointer"
@@ -151,8 +188,8 @@ Type or click a preset command below to execute directly against the backend JSO
               </button>
             </div>
           ) : (
-            <div className="space-y-2.5 max-h-[560px] overflow-y-auto">
-              {wireLog.map((wf) => (
+            <div className="space-y-2.5 max-h-[520px] overflow-y-auto">
+              {filteredWireLog.map((wf) => (
                 <div
                   key={wf.frameId}
                   className="p-3 rounded border border-[#1F2937] bg-[#0B0F17] text-xs font-mono space-y-1.5"

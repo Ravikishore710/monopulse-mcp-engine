@@ -1,0 +1,8 @@
+# MonoPulse Code Ownership Matrix
+* @monopulse-core-maintainers
+/src/server/sqliteEngine.ts @monopulse-storage-team
+/src/server/cryptoSecurity.ts @monopulse-security-team
+/src/server/mcpRegistry.ts @monopulse-mcp-team
+/src/server/mcpProtocolSpec.ts @monopulse-mcp-team
+/src/server/durableLedger.ts @monopulse-security-team
+/src/server/policyAndResilience.ts @monopulse-security-team

@@ -8,6 +8,12 @@ import {
   JiraTicket
 } from './sandboxData.ts';
 import { RBACRole } from './mcpTypes.ts';
+import {
+  executeSqliteReadOnlyQuery,
+  explainSqliteQueryPlan,
+  inspectSqliteTableSchema,
+  persistDeploymentRollbackInSqlite
+} from './sqliteEngine.ts';
 
 export function dispatchMCPToolHandler(
   toolName: string,
@@ -16,46 +22,15 @@ export function dispatchMCPToolHandler(
 ): Record<string, any> {
   switch (toolName) {
     case 'sql_execute_readonly_query': {
-      const q = String(args.query).toLowerCase();
-      const limit = Number(args.row_limit || 25);
-      const matchedTable =
-        Object.values(SQL_TABLES).find((t) => q.includes(t.tableName)) || SQL_TABLES.deployments;
-      let rows = [...matchedTable.rows];
-      if (q.includes('checkout-ledger-svc')) {
-        rows = rows.filter((r) => !r.service || r.service === 'checkout-ledger-svc');
-      } else if (q.includes('webhook-dispatcher-v2')) {
-        rows = rows.filter((r) => !r.service || r.service === 'webhook-dispatcher-v2');
-      }
-      return {
-        table: matchedTable.tableName,
-        rowCount: rows.slice(0, limit).length,
-        rows: rows.slice(0, limit),
-        replicaNode: 'pg-ledger-ro-02.us-east-1',
-        readOnlyVerified: true
-      };
+      return executeSqliteReadOnlyQuery(String(args.query), Number(args.row_limit || 25));
     }
 
     case 'sql_inspect_table_schema': {
-      const tbl = SQL_TABLES[args.table_name];
-      return tbl
-        ? { tableName: tbl.tableName, description: tbl.description, columns: tbl.columns }
-        : { error: 'Table not found' };
+      return inspectSqliteTableSchema(String(args.table_name));
     }
 
     case 'sql_explain_query_plan': {
-      const hasForUpdate = /FOR\s+UPDATE/i.test(String(args.query));
-      return {
-        Plan: {
-          Node_Type: hasForUpdate ? 'LockRows (Exclusive Row Lock)' : 'Index Scan',
-          Strategy: hasForUpdate
-            ? 'Seq Scan without SKIP LOCKED — HIGH CONTENTION RISK'
-            : 'B-Tree Index Cond',
-          Estimated_Cost: hasForUpdate ? 18420.5 : 14.2,
-          Advisory_Warning: hasForUpdate
-            ? 'Unbounded FOR UPDATE detected; causes PgBouncer pool saturation under canary traffic.'
-            : 'Query plan is optimal for read replica execution.'
-        }
-      };
+      return explainSqliteQueryPlan(String(args.query));
     }
 
     case 'sql_sample_recent_rows': {
@@ -334,6 +309,7 @@ export function dispatchMCPToolHandler(
     }
 
     case 'infra_trigger_canary_rollback': {
+      persistDeploymentRollbackInSqlite(String(args.deploy_id));
       const depRow = SQL_TABLES.deployments.rows.find((r) => r.deploy_id === args.deploy_id);
       if (depRow) {
         depRow.status = 'ROLLED_BACK';
@@ -348,6 +324,7 @@ export function dispatchMCPToolHandler(
       );
       return {
         mutated: true,
+        sqlitePersisted: true,
         deploy_id: args.deploy_id,
         new_status: 'ROLLED_BACK',
         traffic_shifted_to_stable_pct: 100,

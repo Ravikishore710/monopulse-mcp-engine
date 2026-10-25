@@ -6,6 +6,7 @@ import {
   executeMCPToolCall,
   validateMCPToolSchema
 } from '../src/server/mcpRegistry.ts';
+import { signApprovalToken } from '../src/server/cryptoSecurity.ts';
 
 describe('MCP Registry & Tool Boundary Gatekeeper', () => {
   it('registers all 6 custom MCP servers and 28 deterministic tools', () => {
@@ -17,7 +18,8 @@ describe('MCP Registry & Tool Boundary Gatekeeper', () => {
     const res = executeMCPToolCall({
       toolName: 'sql_execute_readonly_query',
       args: {
-        query: "SELECT deploy_id, service, status FROM deployments WHERE service = 'checkout-ledger-svc'",
+        query:
+          "SELECT deploy_id, service, status FROM deployments WHERE service = 'checkout-ledger-svc'",
         row_limit: 5
       },
       callerRole: 'readonly_analyst'
@@ -60,6 +62,26 @@ describe('MCP Registry & Tool Boundary Gatekeeper', () => {
     expect(supportDeniedLeadTool.httpCode).toBe(403);
   });
 
+  it('returns RBAC_DENIED (HTTP 403) when an approvalToken is forged or mutation arguments are tampered with', () => {
+    const validToken = signApprovalToken({
+      toolName: 'infra_trigger_canary_rollback',
+      args: { deploy_id: 'dep-9042', reason: 'Approved rollback' }
+    });
+
+    // Tamper with deploy_id after token signing
+    const tamperedCall = executeMCPToolCall({
+      toolName: 'infra_trigger_canary_rollback',
+      args: { deploy_id: 'dep-9041-PROD-TAMPERED', reason: 'Approved rollback' },
+      callerRole: 'sre_admin',
+      approvalToken: validToken
+    });
+
+    expect(tamperedCall.status).toBe('RBAC_DENIED');
+    expect(tamperedCall.httpCode).toBe(403);
+    expect(tamperedCall.error?.code).toBe(-32005);
+    expect(tamperedCall.error?.message).toContain('APPROVAL_TOKEN_TAMPERED');
+  });
+
   it('returns SCHEMA_INVALID (HTTP 400/404) for missing required fields, undeclared properties, type mismatches, and unknown tools', () => {
     const unknownToolRes = executeMCPToolCall({
       toolName: 'non_existent_mcp_tool',
@@ -93,9 +115,17 @@ describe('MCP Registry & Tool Boundary Gatekeeper', () => {
     });
     expect(missingRequiredRes.status).toBe('SCHEMA_INVALID');
     expect(missingRequiredRes.httpCode).toBe(400);
+
+    const wrongTypeRes = executeMCPToolCall({
+      toolName: 'github_get_pr_diff',
+      args: { pr_number: 'not-an-integer' as unknown as number },
+      callerRole: 'sre_admin'
+    });
+    expect(wrongTypeRes.status).toBe('SCHEMA_INVALID');
+    expect(wrongTypeRes.httpCode).toBe(400);
   });
 
-  it('returns SQL_MUTATION_BLOCKED (HTTP 403) when DDL, DML, stacked queries, or SQL comments are sent to sql-ops-mcp', () => {
+  it('returns SQL_MUTATION_BLOCKED (HTTP 403) when DDL, DML, PRAGMA/ATTACH, stacked queries, or SQL comments are sent to sql-ops-mcp', () => {
     const dropRes = executeMCPToolCall({
       toolName: 'sql_execute_readonly_query',
       args: { query: 'DROP TABLE deployments;' },
@@ -120,6 +150,13 @@ describe('MCP Registry & Tool Boundary Gatekeeper', () => {
     });
     expect(updateExplainRes.status).toBe('SQL_MUTATION_BLOCKED');
 
+    const pragmaInjectionRes = executeMCPToolCall({
+      toolName: 'sql_execute_readonly_query',
+      args: { query: 'SELECT * FROM deployments WHERE PRAGMA query_only = 0' },
+      callerRole: 'sre_admin'
+    });
+    expect(pragmaInjectionRes.status).toBe('SQL_MUTATION_BLOCKED');
+
     const stackedRes = executeMCPToolCall({
       toolName: 'sql_execute_readonly_query',
       args: { query: 'SELECT 1; SELECT * FROM pg_stat_activity' },
@@ -133,6 +170,13 @@ describe('MCP Registry & Tool Boundary Gatekeeper', () => {
       callerRole: 'sre_admin'
     });
     expect(commentInjectionRes.status).toBe('SQL_MUTATION_BLOCKED');
+
+    const blockCommentRes = executeMCPToolCall({
+      toolName: 'sql_execute_readonly_query',
+      args: { query: 'SELECT /* inline comment */ * FROM deployments' },
+      callerRole: 'sre_admin'
+    });
+    expect(blockCommentRes.status).toBe('SQL_MUTATION_BLOCKED');
   });
 
   it('validates enum and numeric constraints strictly in validateMCPToolSchema', () => {

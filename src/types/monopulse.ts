@@ -1,5 +1,5 @@
 export type RBACRole = 'sre_admin' | 'eng_lead' | 'support_tier2' | 'readonly_analyst';
-export type ActiveModule = 'ambient' | 'mcp' | 'memory' | 'cli';
+export type ActiveModule = 'ambient' | 'mcp' | 'memory' | 'cli' | 'audit';
 
 export interface MCPServerMetadata {
   id: string;

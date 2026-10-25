@@ -1,4 +1,10 @@
 import { GoogleGenAI, Type } from '@google/genai';
+import {
+  computeReciprocalRankFusion,
+  getPlaybookConfidenceBoost,
+  tokenizeAndStemQuery
+} from './memoryRanker.ts';
+import { persistPlaybookToSqlite } from './durableLedger.ts';
 
 const getGenAI = () => {
   if (process.env.VITEST || process.env.NODE_ENV === 'test') return null;
@@ -336,10 +342,34 @@ export async function searchPlaybooksBySemanticSimilarity(
   await ensureBootstrapPlaybooksEmbedded();
   const { vector: qVec, modelUsed } = await embedTextWithGeminiOrFallback(query);
 
-  const scored = PGVECTOR_PLAYBOOKS.map((pb) => {
-    const sim = cosineSimilarity(qVec, pb.fullVector);
-    return { playbook: pb, cosineSimilarity: sim, injectedIntoPrompt: sim >= 0.45 };
-  }).sort((a, b) => b.cosineSimilarity - a.cosineSimilarity);
+  const stemmedQueryTokens = tokenizeAndStemQuery(query);
+
+  const prelim = PGVECTOR_PLAYBOOKS.map((pb) => {
+    const denseSim = cosineSimilarity(qVec, pb.fullVector);
+    const corpusSet = new Set(
+      tokenizeAndStemQuery(`${pb.id} ${pb.title} ${pb.triggerSignature} ${pb.targetServices.join(' ')} ${pb.markdownSkill}`)
+    );
+    const matched = stemmedQueryTokens.filter((tok) => corpusSet.has(tok)).length;
+    const bm25Score = stemmedQueryTokens.length > 0 ? matched / stemmedQueryTokens.length : 0;
+    return { pb, denseSim, bm25Score };
+  });
+
+  const byDense = [...prelim].sort((a, b) => b.denseSim - a.denseSim);
+  const byBm25 = [...prelim].sort((a, b) => b.bm25Score - a.bm25Score);
+
+  const scored = prelim
+    .map((item) => {
+      const rrf = computeReciprocalRankFusion(
+        byDense.findIndex((x) => x.pb.id === item.pb.id),
+        byBm25.findIndex((x) => x.pb.id === item.pb.id)
+      );
+      const fb = getPlaybookConfidenceBoost(item.pb.id);
+      const hybridScore = Number(
+        Math.min(0.9999, Math.max(0.01, item.denseSim + item.bm25Score * 0.14 + rrf + fb)).toFixed(4)
+      );
+      return { playbook: item.pb, cosineSimilarity: hybridScore, injectedIntoPrompt: hybridScore >= 0.45 };
+    })
+    .sort((a, b) => b.cosineSimilarity - a.cosineSimilarity);
 
   const selected = scored.slice(0, topK);
   const topMatch = selected[0];
@@ -438,6 +468,7 @@ export async function distillTrajectoryViaKaggleGPU(params: {
   };
 
   PGVECTOR_PLAYBOOKS.unshift(newPlaybook);
+  persistPlaybookToSqlite(newPlaybook);
 
   const job: KaggleDistillationJob = {
     jobId: `kaggle-gpu-job-${Date.now().toString().slice(-4)}`,

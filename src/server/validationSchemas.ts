@@ -9,11 +9,36 @@ export const RBACRoleSchema = z.enum([
 
 export const McpRpcRequestSchema = z.object({
   jsonrpc: z.literal('2.0').optional().default('2.0'),
-  id: z.string().optional(),
-  method: z.enum(['tools/list', 'tools/call']).optional().default('tools/call'),
+  id: z.union([z.string(), z.number()]).optional(),
+  method: z
+    .enum([
+      'initialize',
+      'notifications/initialized',
+      'notifications/cancelled',
+      'ping',
+      'logging/setLevel',
+      'completion/complete',
+      'tools/list',
+      'tools/call',
+      'resources/list',
+      'resources/templates/list',
+      'resources/read',
+      'prompts/list',
+      'prompts/get'
+    ])
+    .optional()
+    .default('tools/call'),
   params: z
     .object({
       name: z.string().min(1).optional(),
+      uri: z.string().min(1).optional(),
+      level: z.string().min(1).optional(),
+      argument: z
+        .object({
+          name: z.string().optional(),
+          value: z.string().optional()
+        })
+        .optional(),
       arguments: z.record(z.string(), z.unknown()).optional(),
       callerRole: RBACRoleSchema.optional(),
       approvalToken: z.string().optional()
@@ -42,6 +67,8 @@ export const WebhookIngestSchema = z.object({
 
 export const EventApprovalSchema = z.object({
   callerRole: RBACRoleSchema.optional().default('sre_admin'),
+  operatorId: z.string().min(1).max(80).optional(),
+  requireQuorum: z.boolean().optional(),
   editedMutations: z
     .array(
       z.object({
@@ -50,6 +77,11 @@ export const EventApprovalSchema = z.object({
       })
     )
     .optional()
+});
+
+export const PlaybookFeedbackSchema = z.object({
+  vote: z.enum(['upvote', 'downvote']),
+  editedMarkdown: z.string().min(10).max(8000).optional()
 });
 
 export const MemorySearchSchema = z.object({

@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+.git
+.github
+.devcontainer
+.env
+.env.*
+!.env.example
+*.log
+bun.lock

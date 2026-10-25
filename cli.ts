@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import readline from 'node:readline';
 import { MCP_SERVERS, MCP_TOOLS, executeMCPToolCall } from './src/server/mcpRegistry.ts';
 import {
   searchPlaybooksBySemanticSimilarity,
@@ -9,17 +10,49 @@ import {
   ingestAmbientWebhookEvent,
   executeStagedApprovalBlock
 } from './src/server/ambientOrchestrator.ts';
+import { executeSingleMcpRpcPayload } from './src/server/app.ts';
 import { logger } from './src/server/logger.ts';
 
 async function main() {
   const args = process.argv.slice(2);
   const sub = args.join(' ').trim() || 'help';
 
+  // Standard MCP stdio JSON-RPC 2.0 Transport Mode (for Claude Desktop / Cursor / MCP Inspector)
+  if (args.includes('--mcp-stdio')) {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: false
+    });
+    rl.on('line', (line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      try {
+        const parsed = JSON.parse(trimmed);
+        const out = executeSingleMcpRpcPayload(parsed);
+        process.stdout.write(`${JSON.stringify(out.body)}\n`);
+      } catch (err: unknown) {
+        process.stdout.write(
+          `${JSON.stringify({
+            jsonrpc: '2.0',
+            id: null,
+            error: {
+              code: -32700,
+              message: err instanceof Error ? err.message : 'Parse error'
+            }
+          })}\n`
+        );
+      }
+    });
+    return;
+  }
+
   if (sub === 'help' || sub === '--help') {
     logger.info(
       {
         commands: [
           'npm run cli -- mcp list',
+          'npm run mcp:stdio (Standard MCP JSON-RPC 2.0 stdio transport)',
           'npm run cli -- rbac test-unauthorized',
           'npm run cli -- webhook emit ledger',
           'npm run cli -- memory search "PgBouncer lock contention"',

@@ -1,25 +1,44 @@
 import React, { useEffect, useState } from 'react';
-import { Database, Layers, ShieldAlert, Terminal } from 'lucide-react';
-import {
-  ActiveModule,
-  AmbientEventRecord,
-  RBACRole,
-  SystemState
-} from './types/monopulse.ts';
+import { Database, Layers, Lock, ShieldAlert, Terminal } from 'lucide-react';
+import { ActiveModule, AmbientEventRecord, RBACRole, SystemState } from './types/monopulse.ts';
 import { AmbientPanel } from './components/AmbientPanel.tsx';
 import { McpPanel } from './components/McpPanel.tsx';
 import { MemoryPanel } from './components/MemoryPanel.tsx';
 import { CliPanel } from './components/CliPanel.tsx';
+import { TrustAuditPanel } from './components/TrustAuditPanel.tsx';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
+import { CommandPalette } from './components/CommandPalette.tsx';
+
+const MODULE_TABS: { id: ActiveModule; label: string }[] = [
+  { id: 'ambient', label: 'Ambient Event Bus' },
+  { id: 'mcp', label: 'MCP Surface & RBAC' },
+  { id: 'memory', label: 'Memory & Kaggle GPU' },
+  { id: 'cli', label: 'CLI & Wire Protocol' },
+  { id: 'audit', label: 'SQLite & Crypto Audit' }
+];
 
 export default function App() {
   const [state, setState] = useState<SystemState | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeModule, setActiveModule] = useState<ActiveModule>('ambient');
-  const [callerRole, setCallerRole] = useState<RBACRole>('sre_admin');
+  const [activeModule, setActiveModule] = useState<ActiveModule>(() => {
+    try {
+      return (localStorage.getItem('monopulse_active_module') as ActiveModule) || 'ambient';
+    } catch {
+      return 'ambient';
+    }
+  });
+  const [callerRole, setCallerRole] = useState<RBACRole>(() => {
+    try {
+      return (localStorage.getItem('monopulse_caller_role') as RBACRole) || 'sre_admin';
+    } catch {
+      return 'sre_admin';
+    }
+  });
   const [selectedEventId, setSelectedEventId] = useState<string>('evt-ambient-901');
   const [selectedServerFilter, setSelectedServerFilter] = useState<string>('all');
   const [ingestingWebhook, setIngestingWebhook] = useState(false);
   const [runningKaggleJob, setRunningKaggleJob] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const fetchSystemState = async () => {
     try {
@@ -41,7 +60,40 @@ export default function App() {
 
   useEffect(() => {
     fetchSystemState();
+    if (typeof window !== 'undefined') {
+      const onKey = (e: KeyboardEvent) => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+          e.preventDefault();
+          setPaletteOpen((prev) => !prev);
+        }
+      };
+      window.addEventListener('keydown', onKey);
+      if ('EventSource' in window) {
+        const es = new EventSource('/api/events/stream');
+        const refresh = () => {
+          fetchSystemState();
+        };
+        es.addEventListener('webhook.ingested', refresh);
+        es.addEventListener('approval.executed', refresh);
+        es.addEventListener('playbook.distilled', refresh);
+        return () => {
+          window.removeEventListener('keydown', onKey);
+          es.close();
+        };
+      }
+      return () => window.removeEventListener('keydown', onKey);
+    }
+    return undefined;
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('monopulse_active_module', activeModule);
+      localStorage.setItem('monopulse_caller_role', callerRole);
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [activeModule, callerRole]);
 
   const handleEmitWebhook = async (params: {
     source: 'slack.incident.webhook' | 'jira.issue.created' | 'github.canary.alert';
@@ -151,42 +203,37 @@ export default function App() {
           MonoPulse
         </a>
 
-        <nav className="hidden md:flex items-center gap-7 text-sm font-medium text-[#9CA3AF]">
-          <button
-            onClick={() => setActiveModule('ambient')}
-            className={`hover:text-[#F9FAFB] transition-colors whitespace-nowrap shrink-0 py-1 border-b-2 ${
-              activeModule === 'ambient' ? 'text-[#F9FAFB] border-[#2563EB]' : 'border-transparent'
-            }`}
-          >
-            Ambient Event Bus
-          </button>
-          <button
-            onClick={() => setActiveModule('mcp')}
-            className={`hover:text-[#F9FAFB] transition-colors whitespace-nowrap shrink-0 py-1 border-b-2 ${
-              activeModule === 'mcp' ? 'text-[#F9FAFB] border-[#2563EB]' : 'border-transparent'
-            }`}
-          >
-            MCP Surface &amp; RBAC
-          </button>
-          <button
-            onClick={() => setActiveModule('memory')}
-            className={`hover:text-[#F9FAFB] transition-colors whitespace-nowrap shrink-0 py-1 border-b-2 ${
-              activeModule === 'memory' ? 'text-[#F9FAFB] border-[#2563EB]' : 'border-transparent'
-            }`}
-          >
-            Memory &amp; Kaggle GPU
-          </button>
-          <button
-            onClick={() => setActiveModule('cli')}
-            className={`hover:text-[#F9FAFB] transition-colors whitespace-nowrap shrink-0 py-1 border-b-2 ${
-              activeModule === 'cli' ? 'text-[#F9FAFB] border-[#2563EB]' : 'border-transparent'
-            }`}
-          >
-            CLI &amp; Wire Protocol
-          </button>
+        <nav role="tablist" aria-label="MonoPulse Modules" className="hidden md:flex items-center gap-7 text-sm font-medium text-[#9CA3AF]">
+          {MODULE_TABS.map((tab, idx) => (
+            <button
+              key={tab.id}
+              role="tab"
+              aria-selected={activeModule === tab.id}
+              onClick={() => setActiveModule(tab.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowRight') {
+                  setActiveModule(MODULE_TABS[(idx + 1) % MODULE_TABS.length].id);
+                } else if (e.key === 'ArrowLeft') {
+                  setActiveModule(MODULE_TABS[(idx - 1 + MODULE_TABS.length) % MODULE_TABS.length].id);
+                }
+              }}
+              className={`hover:text-[#F9FAFB] transition-colors whitespace-nowrap shrink-0 py-1 border-b-2 ${
+                activeModule === tab.id ? 'text-[#F9FAFB] border-[#2563EB]' : 'border-transparent'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </nav>
 
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2.5 shrink-0">
+          <button
+            onClick={() => setPaletteOpen(true)}
+            aria-label="Open Command Palette"
+            className="px-2.5 py-1.5 text-xs font-mono border border-[#1F2937] bg-[#111827] text-[#9CA3AF] hover:text-[#F9FAFB] rounded-md cursor-pointer"
+          >
+            ⌘K
+          </button>
           <button
             onClick={() =>
               handleEmitWebhook({
@@ -204,71 +251,68 @@ export default function App() {
         </div>
       </header>
 
+      {/* Mobile Navigation Bar (< 768px) */}
+      <div className="flex md:hidden items-center gap-2 overflow-x-auto px-4 py-2 border-b border-[#1F2937] bg-[#0E131F]">
+        {MODULE_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveModule(tab.id)}
+            className={`px-3 py-1 rounded text-xs font-medium whitespace-nowrap ${
+              activeModule === tab.id ? 'bg-[#2563EB] text-white' : 'text-[#9CA3AF]'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        tools={state.mcpTools}
+        onSelectModule={setActiveModule}
+        onSelectRole={setCallerRole}
+        onSelectToolServer={setSelectedServerFilter}
+        onEmitWebhook={() =>
+          handleEmitWebhook({
+            source: 'slack.incident.webhook',
+            service: 'checkout-ledger-svc',
+            summary: '[FIRING: P0] Command Palette triggered canary dep-9042 diagnostic trace'
+          })
+        }
+      />
+
       <div className="flex-1 flex min-h-0">
         <aside className="w-[268px] shrink-0 border-r border-[#1F2937] bg-[#0E131F] p-5 flex flex-col justify-between hidden lg:flex">
           <div className="space-y-6">
             <div>
               <div className="text-xs font-medium text-[#9CA3AF] mb-2">System Modules</div>
               <div className="space-y-1">
-                <button
-                  onClick={() => setActiveModule('ambient')}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                    activeModule === 'ambient'
-                      ? 'bg-[#2563EB] text-white'
-                      : 'text-[#9CA3AF] hover:bg-[#111827] hover:text-[#F9FAFB]'
-                  }`}
-                >
-                  <span className="flex items-center gap-2.5">
-                    <Layers className="w-4 h-4 shrink-0" />
-                    <span>01. Ambient Event Bus</span>
-                  </span>
-                  <span className="font-mono tabular-nums">{state.ambientEvents.length}</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveModule('mcp')}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                    activeModule === 'mcp'
-                      ? 'bg-[#2563EB] text-white'
-                      : 'text-[#9CA3AF] hover:bg-[#111827] hover:text-[#F9FAFB]'
-                  }`}
-                >
-                  <span className="flex items-center gap-2.5">
-                    <ShieldAlert className="w-4 h-4 shrink-0" />
-                    <span>02. MCP Tool Boundary</span>
-                  </span>
-                  <span className="font-mono tabular-nums">6 / 28</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveModule('memory')}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                    activeModule === 'memory'
-                      ? 'bg-[#2563EB] text-white'
-                      : 'text-[#9CA3AF] hover:bg-[#111827] hover:text-[#F9FAFB]'
-                  }`}
-                >
-                  <span className="flex items-center gap-2.5">
-                    <Database className="w-4 h-4 shrink-0" />
-                    <span>03. Memory &amp; Playbooks</span>
-                  </span>
-                  <span className="font-mono tabular-nums">{state.pgvectorPlaybooks.length}</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveModule('cli')}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                    activeModule === 'cli'
-                      ? 'bg-[#2563EB] text-white'
-                      : 'text-[#9CA3AF] hover:bg-[#111827] hover:text-[#F9FAFB]'
-                  }`}
-                >
-                  <span className="flex items-center gap-2.5">
-                    <Terminal className="w-4 h-4 shrink-0" />
-                    <span>04. Live CLI &amp; Wire Log</span>
-                  </span>
-                  <span className="font-mono tabular-nums">{state.wireLog.length}</span>
-                </button>
+                {(
+                  [
+                    { id: 'ambient', label: '01. Ambient Event Bus', badge: state.ambientEvents.length, Icon: Layers },
+                    { id: 'mcp', label: '02. MCP Tool Boundary', badge: '6 / 28', Icon: ShieldAlert },
+                    { id: 'memory', label: '03. Memory & Playbooks', badge: state.pgvectorPlaybooks.length, Icon: Database },
+                    { id: 'cli', label: '04. Live CLI & Wire Log', badge: state.wireLog.length, Icon: Terminal },
+                    { id: 'audit', label: '05. SQLite & Crypto Audit', badge: 'HMAC', Icon: Lock }
+                  ] as { id: ActiveModule; label: string; badge: string | number; Icon: any }[]
+                ).map(({ id, label, badge, Icon }) => (
+                  <button
+                    key={id}
+                    onClick={() => setActiveModule(id)}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                      activeModule === id
+                        ? 'bg-[#2563EB] text-white'
+                        : 'text-[#9CA3AF] hover:bg-[#111827] hover:text-[#F9FAFB]'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <Icon className="w-4 h-4 shrink-0" />
+                      <span>{label}</span>
+                    </span>
+                    <span className="font-mono tabular-nums">{badge}</span>
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -394,50 +438,54 @@ export default function App() {
             </div>
           </section>
 
-          {activeModule === 'ambient' && (
-            <AmbientPanel
-              events={state.ambientEvents}
-              selectedEventId={selectedEventId}
-              onSelectEventId={setSelectedEventId}
-              callerRole={callerRole}
-              ingestingWebhook={ingestingWebhook}
-              runningKaggleJob={runningKaggleJob}
-              onEmitWebhook={handleEmitWebhook}
-              onApproveEvent={handleApproveEvent}
-              onDistillEvent={handleDistillEvent}
-            />
-          )}
+          <ErrorBoundary>
+            {activeModule === 'ambient' && (
+              <AmbientPanel
+                events={state.ambientEvents}
+                selectedEventId={selectedEventId}
+                onSelectEventId={setSelectedEventId}
+                callerRole={callerRole}
+                ingestingWebhook={ingestingWebhook}
+                runningKaggleJob={runningKaggleJob}
+                onEmitWebhook={handleEmitWebhook}
+                onApproveEvent={handleApproveEvent}
+                onDistillEvent={handleDistillEvent}
+              />
+            )}
 
-          {activeModule === 'mcp' && (
-            <McpPanel
-              servers={state.mcpServers}
-              tools={state.mcpTools}
-              callerRole={callerRole}
-              onChangeCallerRole={setCallerRole}
-              selectedServerFilter={selectedServerFilter}
-              onSelectServerFilter={setSelectedServerFilter}
-              onRefreshState={fetchSystemState}
-            />
-          )}
+            {activeModule === 'mcp' && (
+              <McpPanel
+                servers={state.mcpServers}
+                tools={state.mcpTools}
+                callerRole={callerRole}
+                onChangeCallerRole={setCallerRole}
+                selectedServerFilter={selectedServerFilter}
+                onSelectServerFilter={setSelectedServerFilter}
+                onRefreshState={fetchSystemState}
+              />
+            )}
 
-          {activeModule === 'memory' && (
-            <MemoryPanel
-              avgStepReductionPct={state.metrics.avgStepReductionPct}
-              pgvectorPlaybooks={state.pgvectorPlaybooks}
-              redisTier1={state.redisTier1}
-              kaggleGpuJobs={state.kaggleGpuJobs}
-              selectedEventId={selectedEventId}
-              onRefreshState={fetchSystemState}
-            />
-          )}
+            {activeModule === 'memory' && (
+              <MemoryPanel
+                avgStepReductionPct={state.metrics.avgStepReductionPct}
+                pgvectorPlaybooks={state.pgvectorPlaybooks}
+                redisTier1={state.redisTier1}
+                kaggleGpuJobs={state.kaggleGpuJobs}
+                selectedEventId={selectedEventId}
+                onRefreshState={fetchSystemState}
+              />
+            )}
 
-          {activeModule === 'cli' && (
-            <CliPanel
-              wireLog={state.wireLog}
-              callerRole={callerRole}
-              onRefreshState={fetchSystemState}
-            />
-          )}
+            {activeModule === 'cli' && (
+              <CliPanel
+                wireLog={state.wireLog}
+                callerRole={callerRole}
+                onRefreshState={fetchSystemState}
+              />
+            )}
+
+            {activeModule === 'audit' && <TrustAuditPanel callerRole={callerRole} />}
+          </ErrorBoundary>
         </main>
       </div>
     </div>

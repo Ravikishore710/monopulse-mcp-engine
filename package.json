@@ -4,10 +4,12 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
-    "start": "tsx server.ts",
-    "cli": "tsx cli.ts",
-    "test": "vitest run",
+    "dev": "NODE_NO_WARNINGS=1 tsx server.ts",
+    "start": "NODE_NO_WARNINGS=1 tsx server.ts",
+    "cli": "NODE_NO_WARNINGS=1 tsx cli.ts",
+    "mcp:stdio": "NODE_NO_WARNINGS=1 tsx cli.ts --mcp-stdio",
+    "test": "NODE_NO_WARNINGS=1 vitest run",
+    "test:api": "NODE_NO_WARNINGS=1 vitest run tests/apiRoutes.test.ts tests/mcpProtocolAndObservability.test.ts tests/sqliteAndCrypto.test.ts tests/durableGovernanceAndNormalization.test.ts",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
@@ -31,6 +33,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",

@@ -7,6 +7,10 @@ import {
 } from './mcpTypes.ts';
 import { MCP_TOOLS } from './mcpToolDefinitions.ts';
 import { dispatchMCPToolHandler } from './mcpToolHandlers.ts';
+import { recordSqliteAuditFrame } from './sqliteEngine.ts';
+import { evaluateAbacPolicy, verifyApprovalToken } from './cryptoSecurity.ts';
+import { sanitizeAndTruncateMcpPayload } from './mcpProtocolSpec.ts';
+import { incrementMcpToolMetric, recordMcpLatencyMs } from './observabilityEngine.ts';
 
 export { MCP_SERVERS, MCP_TOOLS };
 export type { MCPServerMetadata, MCPToolDefinition, MCPWireFrame, RBACRole };
@@ -14,14 +18,23 @@ export type { MCPServerMetadata, MCPToolDefinition, MCPWireFrame, RBACRole };
 export const WIRE_LOG: MCPWireFrame[] = [];
 
 function recordWireFrame(frame: MCPWireFrame) {
+  frame.requestPayload = sanitizeAndTruncateMcpPayload(frame.requestPayload);
+  frame.responsePayload = sanitizeAndTruncateMcpPayload(frame.responsePayload);
+  incrementMcpToolMetric(frame.toolName, frame.status, frame.callerRole);
+  recordMcpLatencyMs(frame.latencyMs);
   WIRE_LOG.unshift(frame);
   if (WIRE_LOG.length > 80) {
     WIRE_LOG.pop();
   }
+  try {
+    recordSqliteAuditFrame(frame);
+  } catch {
+    // Non-fatal in case SQLite is closing
+  }
 }
 
 /**
- * Deterministic JSON Schema Draft-07 Validator at the MCP Tool Boundary
+ * Deterministic Deep JSON Schema Draft-07 Validator at the MCP Tool Boundary
  */
 export function validateMCPToolSchema(
   tool: MCPToolDefinition,
@@ -48,7 +61,10 @@ export function validateMCPToolSchema(
     }
   }
 
-  for (const [key, propSchema] of Object.entries(tool.inputSchema.properties)) {
+  for (const [key, propSchema] of Object.entries(tool.inputSchema.properties) as [
+    string,
+    Record<string, any>
+  ][]) {
     const val = args[key];
     if (val === undefined) continue;
 
@@ -63,12 +79,25 @@ export function validateMCPToolSchema(
       errors.push(`Property '${key}' must be a number (received ${typeof val}).`);
     } else if (propSchema.type === 'boolean' && typeof val !== 'boolean') {
       errors.push(`Property '${key}' must be a boolean (received ${typeof val}).`);
+    } else if (propSchema.type === 'array' && !Array.isArray(val)) {
+      errors.push(`Property '${key}' must be an array.`);
     }
 
-    if (propSchema.enum && typeof val === 'string' && !propSchema.enum.includes(val)) {
-      errors.push(
-        `Property '${key}' value '${val}' violates enum constraint [${propSchema.enum.join(', ')}].`
-      );
+    if (typeof val === 'string') {
+      if (propSchema.enum && !propSchema.enum.includes(val)) {
+        errors.push(
+          `Property '${key}' value '${val}' violates enum constraint [${propSchema.enum.join(', ')}].`
+        );
+      }
+      if (propSchema.minLength !== undefined && val.length < propSchema.minLength) {
+        errors.push(`Property '${key}' length (${val.length}) is below minLength ${propSchema.minLength}.`);
+      }
+      if (propSchema.maxLength !== undefined && val.length > propSchema.maxLength) {
+        errors.push(`Property '${key}' length (${val.length}) exceeds maxLength ${propSchema.maxLength}.`);
+      }
+      if (propSchema.pattern && !new RegExp(propSchema.pattern).test(val)) {
+        errors.push(`Property '${key}' does not match required pattern ${propSchema.pattern}.`);
+      }
     }
 
     if (typeof val === 'number') {
@@ -85,7 +114,7 @@ export function validateMCPToolSchema(
 }
 
 /**
- * Enforces JSON Schema validation, RBAC role authorization, and Read-Only SQL AST guards
+ * Enforces JSON Schema validation, RBAC role authorization, ABAC policies, and Read-Only SQL AST guards
  */
 export function executeMCPToolCall(params: {
   toolName: string;
@@ -170,14 +199,24 @@ export function executeMCPToolCall(params: {
     };
   }
 
-  // Step 2: Granular RBAC check at the tool boundary
-  if (!tool.allowedRoles.includes(params.callerRole)) {
+  // Step 2: Granular RBAC + Contextual ABAC check at the tool boundary
+  const abacCheck = evaluateAbacPolicy({
+    callerRole: params.callerRole,
+    toolName: tool.name,
+    isMutation: tool.isMutation,
+    args: params.args
+  });
+
+  if (!tool.allowedRoles.includes(params.callerRole) || !abacCheck.allowed) {
     const errorPayload = {
       code: -32003,
-      message: `RBAC_POLICY_DENIED: Caller role '${params.callerRole}' is not authorized to invoke ${tool.isMutation ? 'mutating' : 'restricted'} tool '${tool.name}' on server '${tool.serverId}'.`,
+      message: !abacCheck.allowed
+        ? `ABAC_POLICY_DENIED (${abacCheck.policyId}): ${abacCheck.reason}`
+        : `RBAC_POLICY_DENIED: Caller role '${params.callerRole}' is not authorized to invoke ${tool.isMutation ? 'mutating' : 'restricted'} tool '${tool.name}' on server '${tool.serverId}'.`,
       data: {
         callerRole: params.callerRole,
         requiredRoles: tool.allowedRoles,
+        abacPolicyId: abacCheck.policyId,
         isMutation: tool.isMutation
       }
     };
@@ -205,18 +244,58 @@ export function executeMCPToolCall(params: {
     };
   }
 
-  // Step 3: Additional SQL Read-Only AST/Keyword Guard
+  // Step 2b: Cryptographic Approval Token Verification
+  if (params.approvalToken) {
+    const tokenVerification = verifyApprovalToken({
+      token: params.approvalToken,
+      toolName: tool.name,
+      args: params.args
+    });
+    if (!tokenVerification.valid) {
+      const errorPayload = {
+        code: -32005,
+        message: `APPROVAL_TOKEN_TAMPERED: ${tokenVerification.reason || 'Invalid HMAC-SHA256 approval token'}`,
+        data: { toolName: tool.name, reason: tokenVerification.reason }
+      };
+      const wf: MCPWireFrame = {
+        frameId: rpcId,
+        timestamp: new Date().toISOString(),
+        serverId: tool.serverId,
+        toolName: tool.name,
+        callerRole: params.callerRole,
+        isMutation: tool.isMutation,
+        approvalTokenProvided: true,
+        status: 'RBAC_DENIED',
+        latencyMs: Date.now() - start + 1,
+        requestPayload: params.args,
+        responsePayload: errorPayload
+      };
+      recordWireFrame(wf);
+      return {
+        jsonrpc: '2.0',
+        id: rpcId,
+        status: 'RBAC_DENIED',
+        httpCode: 403,
+        error: errorPayload,
+        wireFrame: wf
+      };
+    }
+  }
+
+  // Step 3: Literal-Aware SQL Read-Only AST/Keyword Guard
   if (tool.name === 'sql_execute_readonly_query' || tool.name === 'sql_explain_query_plan') {
     const rawSql = String(params.args.query || '').trim();
-    const withoutTrailingSemicolon = rawSql.replace(/;$/, '');
+    // Strip single-quoted string literals before checking for SQL comments or stacked semicolons
+    const sqlWithoutStringLiterals = rawSql.replace(/'(?:''|[^'])*'/g, "''");
+    const withoutTrailingSemicolon = sqlWithoutStringLiterals.replace(/;$/, '');
     const hasStackedStatementsOrComments =
-      withoutTrailingSemicolon.includes(';') || /(--|\/\*)/.test(rawSql);
+      withoutTrailingSemicolon.includes(';') || /(--|\/\*)/.test(sqlWithoutStringLiterals);
     const forbiddenPattern =
-      /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|GRANT|REVOKE|CREATE|REPLACE)\b/i;
+      /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|GRANT|REVOKE|CREATE|REPLACE|ATTACH|PRAGMA)\b/i;
     if (
       hasStackedStatementsOrComments ||
-      forbiddenPattern.test(rawSql) ||
-      !/^SELECT\b/i.test(rawSql)
+      forbiddenPattern.test(sqlWithoutStringLiterals) ||
+      !/^SELECT\b/i.test(sqlWithoutStringLiterals)
     ) {
       const errorPayload = {
         code: -32004,

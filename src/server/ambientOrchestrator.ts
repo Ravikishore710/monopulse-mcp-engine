@@ -1,15 +1,13 @@
 import { GoogleGenAI } from '@google/genai';
 import { executeMCPToolCall, RBACRole } from './mcpRegistry.ts';
 import { REDIS_TIER1_STORE, searchPlaybooksBySemanticSimilarity } from './memoryEngine.ts';
+import { signApprovalToken } from './cryptoSecurity.ts';
 
 const getGenAI = () => {
   if (process.env.VITEST || process.env.NODE_ENV === 'test') return null;
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') return null;
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
-  });
+  return new GoogleGenAI({ apiKey, httpOptions: { headers: { 'User-Agent': 'aistudio-build' } } });
 };
 
 export interface StagedMutationAction {
@@ -322,7 +320,13 @@ export async function ingestAmbientWebhookEvent(params: {
     }
   }
 
-  const approvalToken = `appr_sig_${Date.now().toString().slice(-6)}`;
+  const approvalToken = signApprovalToken({
+    eventId,
+    toolName: params.service === 'checkout-ledger-svc' ? 'infra_trigger_canary_rollback' : 'github_post_pr_review_comment',
+    args: params.service === 'checkout-ledger-svc'
+      ? { deploy_id: 'dep-9042', reason: `Ambient 1-Click Rollback for ${eventId}: PgBouncer lock contention in PR #1842` }
+      : { pr_number: 1835, comment_body: `MonoPulse Ambient RCA (${eventId}): 400ms TLS timeout breaks cross-region EU handshakes.` }
+  });
   const stagedMutations: StagedMutationAction[] =
     params.service === 'checkout-ledger-svc'
       ? [
@@ -457,11 +461,12 @@ export function executeStagedApprovalBlock(params: {
   let allSucceeded = true;
 
   for (const mut of event.stagedMutations) {
+    const mutToken = signApprovalToken({ eventId: event.eventId, toolName: mut.toolName, args: mut.args });
     const rpcRes = executeMCPToolCall({
       toolName: mut.toolName,
       args: mut.args,
       callerRole: params.callerRole,
-      approvalToken: event.approvalToken
+      approvalToken: mutToken
     });
 
     if (rpcRes.status === 'SUCCESS') {
@@ -473,12 +478,7 @@ export function executeStagedApprovalBlock(params: {
       allSucceeded = false;
     }
 
-    results.push({
-      toolName: mut.toolName,
-      status: rpcRes.status,
-      httpCode: rpcRes.httpCode,
-      detail: rpcRes.result || rpcRes.error
-    });
+    results.push({ toolName: mut.toolName, status: rpcRes.status, httpCode: rpcRes.httpCode, detail: rpcRes.result || rpcRes.error });
   }
 
   if (allSucceeded) {
