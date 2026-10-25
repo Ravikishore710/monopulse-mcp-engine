@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MonoPulse — Internal Operations Monoagent &amp; MCP Ecosystem</title>
+    <meta name="description" content="Autonomous organizational operations monoagent and Model Context Protocol (MCP) runtime featuring 6 custom MCP servers (28 RBAC-gated tools), a two-tier pgvector/Redis shared memory layer, Kaggle GPU trajectory distillation, and ambient 1-Click Approve/Edit workflows." />
+    <meta property="og:title" content="MonoPulse — Internal Operations Monoagent &amp; MCP Ecosystem" />
+    <meta property="og:description" content="Autonomous organizational operations monoagent and Model Context Protocol (MCP) runtime featuring 6 custom MCP servers (28 RBAC-gated tools), a two-tier pgvector/Redis shared memory layer, Kaggle GPU trajectory distillation, and ambient 1-Click Approve/Edit workflows." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      (function () {
+        var NativeWebSocket = window.WebSocket;
+        if (!NativeWebSocket) return;
+        function MockViteWebSocket(url, protocols) {
+          var target = new EventTarget();
+          var self = this;
+          this.url = url;
+          this.protocol = Array.isArray(protocols) ? protocols[0] || '' : protocols || '';
+          this.readyState = 1;
+          this.bufferedAmount = 0;
+          this.extensions = '';
+          this.binaryType = 'blob';
+          this.onopen = null;
+          this.onerror = null;
+          this.onclose = null;
+          this.onmessage = null;
+          this.addEventListener = target.addEventListener.bind(target);
+          this.removeEventListener = target.removeEventListener.bind(target);
+          this.dispatchEvent = target.dispatchEvent.bind(target);
+          this.send = function () {};
+          this.close = function () {
+            self.readyState = 3;
+          };
+          setTimeout(function () {
+            var openEvt = new Event('open');
+            if (typeof self.onopen === 'function') self.onopen(openEvt);
+            self.dispatchEvent(openEvt);
+            var msgEvt = new MessageEvent('message', {
+              data: JSON.stringify({ type: 'connected' })
+            });
+            if (typeof self.onmessage === 'function') self.onmessage(msgEvt);
+            self.dispatchEvent(msgEvt);
+          }, 10);
+        }
+        var WrappedWebSocket = function (url, protocols) {
+          var protoStr = Array.isArray(protocols) ? protocols.join(',') : String(protocols || '');
+          if (protoStr.indexOf('vite') !== -1 || String(url || '').indexOf('vite') !== -1) {
+            return new MockViteWebSocket(url, protocols);
+          }
+          return protocols !== undefined
+            ? new NativeWebSocket(url, protocols)
+            : new NativeWebSocket(url);
+        };
+        WrappedWebSocket.CONNECTING = 0;
+        WrappedWebSocket.OPEN = 1;
+        WrappedWebSocket.CLOSING = 2;
+        WrappedWebSocket.CLOSED = 3;
+        WrappedWebSocket.prototype = NativeWebSocket.prototype;
+        window.WebSocket = WrappedWebSocket;
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  </head>
+  <body class="bg-[#0B0F17] text-[#F9FAFB] antialiased selection:bg-blue-600 selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

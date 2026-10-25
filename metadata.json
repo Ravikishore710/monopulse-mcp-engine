@@ -1,0 +1,6 @@
+{
+  "name": "MonoPulse — Internal Operations Monoagent & MCP Ecosystem",
+  "description": "Autonomous organizational operations monoagent and Model Context Protocol (MCP) runtime featuring 6 custom MCP servers (28 RBAC-gated tools), a two-tier pgvector/Redis shared memory layer, Kaggle GPU trajectory distillation, and ambient 1-Click Approve/Edit workflows.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
