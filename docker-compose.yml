@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  monopulse-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - POSTGRES_PGVECTOR_URL=postgresql://monopulse:monopulse@pgvector:5432/monopulse_memory
+      - REDIS_CACHE_URL=redis://redis:6379
+    depends_on:
+      - pgvector
+      - redis
+
+  pgvector:
+    image: pgvector/pgvector:pg16
+    environment:
+      - POSTGRES_USER=monopulse
+      - POSTGRES_PASSWORD=monopulse
+      - POSTGRES_DB=monopulse_memory
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"

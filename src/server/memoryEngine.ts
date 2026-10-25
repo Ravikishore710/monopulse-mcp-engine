@@ -1,15 +1,12 @@
 import { GoogleGenAI, Type } from '@google/genai';
 
 const getGenAI = () => {
+  if (process.env.VITEST || process.env.NODE_ENV === 'test') return null;
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') return null;
   return new GoogleGenAI({
     apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build'
-      }
-    }
+    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
   });
 };
 
@@ -58,15 +55,38 @@ export interface KaggleDistillationJob {
   timestamp: string;
 }
 
-/**
- * Deterministic semantic vector generator used to bootstrap initial playbooks
- * and act as a zero-latency fallback alongside live gemini-embedding-2-preview calls.
- */
 export function computeDeterministicEmbedding(text: string, dim = 64): number[] {
   const normalized = text.toLowerCase();
   const domainConcepts = [
-    ['pgbouncer', 'pool', 'exhaustion', 'connection', '53300', 'lock', 'for update', 'ledger', 'canary', 'rollback', 'dep-9042', 'ops-4821', '5xx'],
-    ['webhook', 'tls', 'handshake', 'etimedout', 'timeout', '400ms', 'eu-central-1', 'vanguard', 'retry', 'ops-4819', 'c4190ab', '1835'],
+    [
+      'pgbouncer',
+      'pool',
+      'exhaustion',
+      'connection',
+      '53300',
+      'lock',
+      'for update',
+      'ledger',
+      'canary',
+      'rollback',
+      'dep-9042',
+      'ops-4821',
+      '5xx'
+    ],
+    [
+      'webhook',
+      'tls',
+      'handshake',
+      'etimedout',
+      'timeout',
+      '400ms',
+      'eu-central-1',
+      'vanguard',
+      'retry',
+      'ops-4819',
+      'c4190ab',
+      '1835'
+    ],
     ['replication', 'lag', 'wal', 'replica', 'degraded', 'postgres', 'sql', 'select', 'read-only'],
     ['auth', 'token', 'jwk', 'rotation', 'gateway', 'latency', 'sla']
   ];
@@ -77,7 +97,6 @@ export function computeDeterministicEmbedding(text: string, dim = 64): number[] 
     vec[i % dim] += ((code % 29) - 14) / 50;
   }
 
-  // Boost domain semantic dimensions so cosine similarity accurately reflects operational concepts
   domainConcepts.forEach((keywords, clusterIdx) => {
     let score = 0;
     for (const kw of keywords) {
@@ -89,7 +108,6 @@ export function computeDeterministicEmbedding(text: string, dim = 64): number[] 
     }
   });
 
-  // L2 normalize
   const norm = Math.sqrt(vec.reduce((acc, v) => acc + v * v, 0)) || 1;
   return vec.map((v) => Number((v / norm).toFixed(5)));
 }
@@ -115,7 +133,7 @@ export async function embedTextWithGeminiOrFallback(text: string): Promise<{
         };
       }
     } catch {
-      // Fall through to deterministic operational embedding vector
+      // Fallback to deterministic vector
     }
   }
   return {
@@ -139,7 +157,6 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   return Number(Math.max(0, Math.min(0.994, dot / denom)).toFixed(4));
 }
 
-// Tier-1 Redis Hot Memory State Store
 export const REDIS_TIER1_STORE: RedisTier1Entry[] = [
   {
     key: 'monopulse:event_lock:OPS-4821',
@@ -160,7 +177,11 @@ export const REDIS_TIER1_STORE: RedisTier1Entry[] = [
     value: {
       approval_token: 'appr_sig_9042_ledger_rb',
       channel: '#inc-prod-alerts',
-      staged_mutations: ['infra_trigger_canary_rollback', 'jira_transition_ticket_status', 'slack_broadcast_resolution'],
+      staged_mutations: [
+        'infra_trigger_canary_rollback',
+        'jira_transition_ticket_status',
+        'slack_broadcast_resolution'
+      ],
       expires_in_min: 30
     },
     ttlSeconds: 1790,
@@ -182,25 +203,26 @@ export const REDIS_TIER1_STORE: RedisTier1Entry[] = [
   }
 ];
 
-// Tier-2 PostgreSQL / pgvector Playbook Vault
-const pb1Text =
-  'PgBouncer connection pool exhaustion 98% HTTP 5xx spike checkout-ledger-svc unbounded SELECT FOR UPDATE lock contention canary rollback dep-9042 OPS-4821';
-const pb1Vec = computeDeterministicEmbedding(pb1Text, 64);
-
-const pb2Text =
-  'Cross-region webhook delivery ETIMEDOUT TLS handshake timeout 400ms eu-central-1 webhook-dispatcher-v2 PR 1835 c4190ab OPS-4819';
-const pb2Vec = computeDeterministicEmbedding(pb2Text, 64);
-
-const pb3Text =
-  'PostgreSQL read-replica WAL replication lag degraded active locks ledger-prod-cluster query plan sequential scan';
-const pb3Vec = computeDeterministicEmbedding(pb3Text, 64);
+const pb1Vec = computeDeterministicEmbedding(
+  'PgBouncer connection pool exhaustion 98% HTTP 5xx spike checkout-ledger-svc unbounded SELECT FOR UPDATE lock contention canary rollback dep-9042 OPS-4821',
+  64
+);
+const pb2Vec = computeDeterministicEmbedding(
+  'Cross-region webhook delivery ETIMEDOUT TLS handshake timeout 400ms eu-central-1 webhook-dispatcher-v2 PR 1835 c4190ab OPS-4819',
+  64
+);
+const pb3Vec = computeDeterministicEmbedding(
+  'PostgreSQL read-replica WAL replication lag degraded active locks ledger-prod-cluster query plan sequential scan',
+  64
+);
 
 export const PGVECTOR_PLAYBOOKS: PgVectorPlaybook[] = [
   {
     id: 'PB-LEDGER-CANARY-01',
     slug: 'pgbouncer-canary-lock-rollback',
     title: 'Playbook: PgBouncer Pool Saturation via Unbounded FOR UPDATE Canary',
-    triggerSignature: 'service=checkout-ledger-svc AND (db_pool_exhaustion_pct > 85 OR sqlstate=53300)',
+    triggerSignature:
+      'service=checkout-ledger-svc AND (db_pool_exhaustion_pct > 85 OR sqlstate=53300)',
     targetServices: ['checkout-ledger-svc'],
     baselineStepsWithoutPlaybook: 8,
     distilledStepsWithPlaybook: 5,
@@ -211,8 +233,7 @@ export const PGVECTOR_PLAYBOOKS: PgVectorPlaybook[] = [
 - **Stage 1-Click Remediation Block**:
   1. \`infra_trigger_canary_rollback(deploy_id, reason)\`
   2. \`jira_transition_ticket_status(ticket_key, 'Mitigated')\`
-  3. \`slack_broadcast_resolution(channel_name, resolution_message)\`
-- **Do NOT ask clarifying questions in Slack**: Pre-compute and post the 1-Click Approval Block immediately.`,
+  3. \`slack_broadcast_resolution(channel_name, resolution_message)\``,
     embeddingModel: 'gemini-embedding-2-preview',
     vectorDim: 768,
     vectorPreview: pb1Vec.slice(0, 8),
@@ -225,17 +246,15 @@ export const PGVECTOR_PLAYBOOKS: PgVectorPlaybook[] = [
     id: 'PB-WEBHOOK-TLS-02',
     slug: 'cross-region-webhook-tls-timeout',
     title: 'Playbook: Cross-Region Webhook TLS Handshake ETIMEDOUT Regression',
-    triggerSignature: 'service=webhook-dispatcher-v2 AND error=ETIMEDOUT AND region IN (eu-central-1, ap-southeast-1)',
+    triggerSignature:
+      'service=webhook-dispatcher-v2 AND error=ETIMEDOUT AND region IN (eu-central-1, ap-southeast-1)',
     targetServices: ['webhook-dispatcher-v2'],
     baselineStepsWithoutPlaybook: 7,
     distilledStepsWithPlaybook: 4,
     stepReductionPct: 42.8,
     markdownSkill: `## Skill: Webhook TLS Handshake Regression Triage (PB-WEBHOOK-TLS-02)
-- **Skip Generic Network Ping Checks**: Directly run \`github_blame_file_range\` on \`src/http/WebhookClient.ts\` and \`github_get_pr_diff\` on the latest merged PR.
-- **Verify Threshold**: Check if \`tlsHandshakeTimeoutMs\` was lowered below the 1500ms cross-Atlantic baseline.
-- **Stage 1-Click Remediation Block**:
-  1. \`github_post_pr_review_comment\` flagging the sub-1500ms timeout regression.
-  2. \`jira_assign_oncall_owner\` to the PR author and append RCA notes.`,
+- **Skip Generic Network Ping Checks**: Directly run \`github_blame_file_range\` on \`src/http/WebhookClient.ts\`.
+- **Verify Threshold**: Check if \`tlsHandshakeTimeoutMs\` was lowered below the 1500ms cross-Atlantic baseline.`,
     embeddingModel: 'gemini-embedding-2-preview',
     vectorDim: 768,
     vectorPreview: pb2Vec.slice(0, 8),
@@ -254,8 +273,7 @@ export const PGVECTOR_PLAYBOOKS: PgVectorPlaybook[] = [
     distilledStepsWithPlaybook: 4,
     stepReductionPct: 33.3,
     markdownSkill: `## Skill: Read-Replica WAL Replay Lag Isolation (PB-REPLICA-LAG-03)
-- **Direct Diagnostic Path**: Execute \`sql_check_replication_lag\` on \`ledger-prod-cluster\` followed by \`sql_explain_query_plan\` on long-running queries.
-- **Remediation**: Route read-only analytical queries to healthy replica \`pg-ledger-ro-02.us-east-1\` and append runbook guardrail patch.`,
+- **Direct Diagnostic Path**: Execute \`sql_check_replication_lag\` on \`ledger-prod-cluster\` followed by \`sql_explain_query_plan\`.`,
     embeddingModel: 'kaggle-gpu-bge-large-en-v1.5',
     vectorDim: 768,
     vectorPreview: pb3Vec.slice(0, 8),
@@ -269,7 +287,8 @@ export const PGVECTOR_PLAYBOOKS: PgVectorPlaybook[] = [
 export const KAGGLE_GPU_JOBS: KaggleDistillationJob[] = [
   {
     jobId: 'kaggle-gpu-job-701',
-    kernelSlug: process.env.KAGGLE_GPU_KERNEL_SLUG || 'monopulse-ops/trajectory-playbook-distiller-gpu',
+    kernelSlug:
+      process.env.KAGGLE_GPU_KERNEL_SLUG || 'monopulse-ops/trajectory-playbook-distiller-gpu',
     accelerator: 'NVIDIA_T4_X2',
     mode: process.env.KAGGLE_KEY ? 'LIVE_KAGGLE_MCP_BRIDGE' : 'LOCAL_GPU_FALLBACK_DISTILLER',
     sourceTrajectoryId: 'traj-prod-8810',
@@ -288,7 +307,7 @@ export const KAGGLE_GPU_JOBS: KaggleDistillationJob[] = [
 let playbooksLiveEmbedded = false;
 
 async function ensureBootstrapPlaybooksEmbedded() {
-  if (playbooksLiveEmbedded) return;
+  if (playbooksLiveEmbedded || !getGenAI()) return;
   playbooksLiveEmbedded = true;
   for (const pb of PGVECTOR_PLAYBOOKS) {
     const { vector, modelUsed } = await embedTextWithGeminiOrFallback(
@@ -300,10 +319,6 @@ async function ensureBootstrapPlaybooksEmbedded() {
   }
 }
 
-/**
- * Queries Tier-2 pgvector memory for top-k matching Playbooks and generates the
- * dynamic system prompt block injected into the MonoPulse agent.
- */
 export async function searchPlaybooksBySemanticSimilarity(
   query: string,
   topK = 3
@@ -323,11 +338,7 @@ export async function searchPlaybooksBySemanticSimilarity(
 
   const scored = PGVECTOR_PLAYBOOKS.map((pb) => {
     const sim = cosineSimilarity(qVec, pb.fullVector);
-    return {
-      playbook: pb,
-      cosineSimilarity: sim,
-      injectedIntoPrompt: sim >= 0.45
-    };
+    return { playbook: pb, cosineSimilarity: sim, injectedIntoPrompt: sim >= 0.45 };
   }).sort((a, b) => b.cosineSimilarity - a.cosineSimilarity);
 
   const selected = scored.slice(0, topK);
@@ -335,8 +346,6 @@ export async function searchPlaybooksBySemanticSimilarity(
 
   const constructedSystemPrompt = `You are MonoPulse, an Autonomous Internal Operations Monoagent.
 EXECUTION MODE: AMBIENT_BACKGROUND_PRECOMPUTE (Zero synchronous chat questions allowed).
-CALLER RBAC BOUNDARY: Enforced per MCP tool schema.
-
 ${
   topMatch && topMatch.cosineSimilarity >= 0.35
     ? `<!-- DYNAMICALLY INJECTED PLAYBOOK FROM PGVECTOR (Cosine Similarity: ${topMatch.cosineSimilarity}) -->
@@ -354,11 +363,6 @@ ${topMatch.playbook.markdownSkill}
   };
 }
 
-/**
- * Playbook Extractor + Kaggle GPU Compute Bridge:
- * Distills a multi-step operational trajectory into a reusable Markdown Playbook,
- * computes its vector embedding, and stores it in Tier-2 pgvector memory.
- */
 export async function distillTrajectoryViaKaggleGPU(params: {
   trajectoryId: string;
   incidentSummary: string;
@@ -373,31 +377,24 @@ export async function distillTrajectoryViaKaggleGPU(params: {
 
   let distilledTitle = `Playbook: Automated ${params.service} Incident Remediation`;
   let triggerSig = `service=${params.service} AND incident_pattern_matched=true`;
-  let distilledMarkdown = `## Skill: ${params.service} Deterministic Triage & Remediation
-- **Direct Read-Only Verification**:
-${params.executedTools
-  .slice(0, 3)
-  .map((t, i) => `  ${i + 1}. Run \`${t.toolName}\` with \`${JSON.stringify(t.args)}\` → ${t.outcomeSummary}`)
-  .join('\n')}
-- **Staged 1-Click Approval Mutation**:
-  - Stage pre-computed remediation in Slack thread without asking synchronous clarifying questions.`;
+  let distilledMarkdown = `## Skill: ${params.service} Deterministic Triage & Remediation\n${params.executedTools
+    .slice(0, 3)
+    .map((t, i) => `  ${i + 1}. Run \`${t.toolName}\` → ${t.outcomeSummary}`)
+    .join('\n')}`;
 
   if (ai) {
     try {
       const response = await ai.models.generateContent({
         model: 'gemini-3.8-flash',
-        contents: `Distill this completed multi-step SRE agent trajectory into a concise, deterministic Markdown Playbook skill that eliminates redundant exploratory tool calls on future runs.
-Incident Summary: ${params.incidentSummary}
-Service: ${params.service}
-Executed Tool Trajectory: ${JSON.stringify(params.executedTools)}`,
+        contents: `Distill this completed SRE trajectory into a Markdown Playbook skill. Incident: ${params.incidentSummary} Service: ${params.service}`,
         config: {
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              title: { type: Type.STRING, description: 'Concise Playbook title' },
-              triggerSignature: { type: Type.STRING, description: 'Boolean trigger signature' },
-              markdownSkill: { type: Type.STRING, description: 'Reusable markdown playbook instructions' }
+              title: { type: Type.STRING },
+              triggerSignature: { type: Type.STRING },
+              markdownSkill: { type: Type.STRING }
             },
             required: ['title', 'triggerSignature', 'markdownSkill']
           }
@@ -410,14 +407,13 @@ Executed Tool Trajectory: ${JSON.stringify(params.executedTools)}`,
         if (parsed.markdownSkill) distilledMarkdown = parsed.markdownSkill;
       }
     } catch {
-      // Fallback to deterministic distillation template above
+      // Fallback to deterministic distillation
     }
   }
 
   const { vector, modelUsed } = await embedTextWithGeminiOrFallback(
     `${distilledTitle} ${params.incidentSummary} ${params.service} ${distilledMarkdown}`
   );
-
   const rawSteps = Math.max(7, params.executedTools.length + 3);
   const distilledSteps = Math.max(3, Math.round(rawSteps * 0.62));
   const reductionPct = Number((((rawSteps - distilledSteps) / rawSteps) * 100).toFixed(1));
@@ -445,7 +441,8 @@ Executed Tool Trajectory: ${JSON.stringify(params.executedTools)}`,
 
   const job: KaggleDistillationJob = {
     jobId: `kaggle-gpu-job-${Date.now().toString().slice(-4)}`,
-    kernelSlug: process.env.KAGGLE_GPU_KERNEL_SLUG || 'monopulse-ops/trajectory-playbook-distiller-gpu',
+    kernelSlug:
+      process.env.KAGGLE_GPU_KERNEL_SLUG || 'monopulse-ops/trajectory-playbook-distiller-gpu',
     accelerator: 'NVIDIA_T4_X2',
     mode: process.env.KAGGLE_KEY ? 'LIVE_KAGGLE_MCP_BRIDGE' : 'LOCAL_GPU_FALLBACK_DISTILLER',
     sourceTrajectoryId: params.trajectoryId,
@@ -461,21 +458,5 @@ Executed Tool Trajectory: ${JSON.stringify(params.executedTools)}`,
   };
 
   KAGGLE_GPU_JOBS.unshift(job);
-
-  // Also record in Tier-1 Redis cache
-  REDIS_TIER1_STORE.unshift({
-    key: `monopulse:playbook_cache:${newPlaybook.id}`,
-    namespace: 'precompute_ctx',
-    value: {
-      playbook_id: newPlaybook.id,
-      kaggle_job_id: job.jobId,
-      step_reduction_pct: reductionPct,
-      vector_indexed: true
-    },
-    ttlSeconds: 7200,
-    createdAt: new Date().toISOString(),
-    lastAccessedAt: new Date().toISOString()
-  });
-
   return { job, newPlaybook };
 }

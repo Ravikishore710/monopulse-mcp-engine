@@ -1,20 +1,14 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import { executeMCPToolCall, RBACRole } from './mcpRegistry.ts';
-import {
-  REDIS_TIER1_STORE,
-  searchPlaybooksBySemanticSimilarity
-} from './memoryEngine.ts';
+import { REDIS_TIER1_STORE, searchPlaybooksBySemanticSimilarity } from './memoryEngine.ts';
 
 const getGenAI = () => {
+  if (process.env.VITEST || process.env.NODE_ENV === 'test') return null;
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') return null;
   return new GoogleGenAI({
     apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build'
-      }
-    }
+    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
   });
 };
 
@@ -90,11 +84,13 @@ EXECUTION MODE: AMBIENT_BACKGROUND_PRECOMPUTE (Zero synchronous chat questions a
         serverId: 'sql-ops-mcp',
         toolName: 'sql_execute_readonly_query',
         args: {
-          query: "SELECT deploy_id, service, git_sha, pr_number, canary_weight_pct, status FROM deployments WHERE service = 'checkout-ledger-svc'",
+          query:
+            "SELECT deploy_id, service, git_sha, pr_number, canary_weight_pct, status FROM deployments WHERE service = 'checkout-ledger-svc'",
           row_limit: 5
         },
         latencyMs: 18,
-        findingSummary: 'Identified active canary dep-9042 (git_sha=a8f31c9, PR #1842) serving 25% traffic.'
+        findingSummary:
+          'Identified active canary dep-9042 (git_sha=a8f31c9, PR #1842) serving 25% traffic.'
       },
       {
         step: 2,
@@ -102,7 +98,8 @@ EXECUTION MODE: AMBIENT_BACKGROUND_PRECOMPUTE (Zero synchronous chat questions a
         toolName: 'github_get_pr_diff',
         args: { pr_number: 1842 },
         latencyMs: 24,
-        findingSummary: 'PR #1842 replaced bounded LIMIT 250 query with unbounded SELECT ... FOR UPDATE in LedgerRepository.ts.'
+        findingSummary:
+          'PR #1842 replaced bounded LIMIT 250 query with unbounded SELECT ... FOR UPDATE in LedgerRepository.ts.'
       },
       {
         step: 3,
@@ -110,7 +107,8 @@ EXECUTION MODE: AMBIENT_BACKGROUND_PRECOMPUTE (Zero synchronous chat questions a
         toolName: 'infra_fetch_pod_logs',
         args: { service: 'checkout-ledger-svc' },
         latencyMs: 15,
-        findingSummary: 'Confirmed LockWaitTimeout on relation ledger_entries (git_sha=a8f31c9) starving PgBouncer pool.'
+        findingSummary:
+          'Confirmed LockWaitTimeout on relation ledger_entries (git_sha=a8f31c9) starving PgBouncer pool.'
       },
       {
         step: 4,
@@ -119,14 +117,15 @@ EXECUTION MODE: AMBIENT_BACKGROUND_PRECOMPUTE (Zero synchronous chat questions a
         args: {
           thread_ts: '1761406210.004200',
           event_id: 'evt-ambient-901',
-          summary_markdown: 'Pre-computed RCA: Canary dep-9042 (PR #1842) introduced unbounded FOR UPDATE locks.'
+          summary_markdown:
+            'Pre-computed RCA: Canary dep-9042 (PR #1842) introduced unbounded FOR UPDATE locks.'
         },
         latencyMs: 12,
         findingSummary: 'Posted silent 1-Click Approve/Edit block into #inc-prod-alerts thread.'
       }
     ],
     rootCauseSynthesis:
-      'Canary deployment dep-9042 (commit a8f31c9, PR #1842 by @mchen) replaced the bounded batch query in LedgerRepository.ts with an unbounded SELECT ... FOR UPDATE without SKIP LOCKED, exhausting 98% of PgBouncer connections and causing a 14.8% HTTP 5xx spike for Acme Global and Kestrel Financial.',
+      'Canary deployment dep-9042 (commit a8f31c9, PR #1842 by @mchen) replaced the bounded batch query in LedgerRepository.ts with an unbounded SELECT ... FOR UPDATE without SKIP LOCKED, exhausting 98% of PgBouncer connections and causing a 14.8% HTTP 5xx spike.',
     approvalToken: 'appr_sig_9042_ledger_rb',
     approvalState: 'STAGED_1CLICK_READY',
     stagedMutations: [
@@ -148,10 +147,7 @@ EXECUTION MODE: AMBIENT_BACKGROUND_PRECOMPUTE (Zero synchronous chat questions a
         toolName: 'jira_transition_ticket_status',
         description: 'Transition Jira incident OPS-4821 from Investigating to Mitigated',
         requiredRole: 'support_tier2',
-        args: {
-          ticket_key: 'OPS-4821',
-          new_status: 'Mitigated'
-        },
+        args: { ticket_key: 'OPS-4821', new_status: 'Mitigated' },
         status: 'STAGED_FOR_1CLICK'
       },
       {
@@ -196,7 +192,8 @@ EXECUTION MODE: AMBIENT_BACKGROUND_PRECOMPUTE.
         toolName: 'github_blame_file_range',
         args: { file_path: 'src/http/WebhookClient.ts' },
         latencyMs: 19,
-        findingSummary: 'Commit c4190ab (PR #1835 by @arivera) reduced tlsHandshakeTimeoutMs from 2500ms to 400ms.'
+        findingSummary:
+          'Commit c4190ab (PR #1835 by @arivera) reduced tlsHandshakeTimeoutMs from 2500ms to 400ms.'
       },
       {
         step: 2,
@@ -204,15 +201,8 @@ EXECUTION MODE: AMBIENT_BACKGROUND_PRECOMPUTE.
         toolName: 'docs_get_runbook_by_service',
         args: { service: 'webhook-dispatcher-v2' },
         latencyMs: 11,
-        findingSummary: 'Runbook RUNBOOK-WEBHOOK-04 specifies 1500ms minimum safe cross-region TLS handshake threshold.'
-      },
-      {
-        step: 3,
-        serverId: 'infra-mcp',
-        toolName: 'infra_fetch_pod_logs',
-        args: { service: 'webhook-dispatcher-v2' },
-        latencyMs: 14,
-        findingSummary: 'Verified TLSHandshakeTimeoutError exceeding 400ms on hooks.vanguardbiolabs.de.'
+        findingSummary:
+          'Runbook RUNBOOK-WEBHOOK-04 specifies 1500ms minimum safe cross-region TLS handshake threshold.'
       }
     ],
     rootCauseSynthesis:
@@ -229,7 +219,7 @@ EXECUTION MODE: AMBIENT_BACKGROUND_PRECOMPUTE.
         args: {
           pr_number: 1835,
           comment_body:
-            'Automated RCA (OPS-4819): Lowering `tlsHandshakeTimeoutMs` to 400ms breaks `eu-central-1` TLS handshakes (minimum runbook threshold: 1500ms). Please revert or raise to 2000ms.'
+            'Automated RCA (OPS-4819): Lowering `tlsHandshakeTimeoutMs` to 400ms breaks `eu-central-1` TLS handshakes (minimum runbook threshold: 1500ms).'
         },
         status: 'STAGED_FOR_1CLICK'
       },
@@ -249,11 +239,6 @@ EXECUTION MODE: AMBIENT_BACKGROUND_PRECOMPUTE.
   }
 ];
 
-/**
- * Ingests an organizational webhook event, matches Tier-2 pgvector playbooks,
- * executes deterministic read-only MCP diagnostic tools in the background,
- * synthesizes root cause via Gemini 3.8 Flash, and stages a 1-Click Approve/Edit block.
- */
 export async function ingestAmbientWebhookEvent(params: {
   source: 'slack.incident.webhook' | 'jira.issue.created' | 'github.canary.alert';
   service: 'checkout-ledger-svc' | 'webhook-dispatcher-v2' | 'auth-token-gateway';
@@ -262,22 +247,19 @@ export async function ingestAmbientWebhookEvent(params: {
 }): Promise<AmbientEventRecord> {
   const start = Date.now();
   const eventId = `evt-ambient-${Date.now().toString().slice(-4)}`;
-
-  // 1. Semantic lookup in Tier-2 pgvector Playbook store
   const playbookSearch = await searchPlaybooksBySemanticSimilarity(
     `${params.service} ${params.payloadSummary}`,
     2
   );
   const bestMatch = playbookSearch.matches[0];
-
-  // 2. Execute autonomous Read-Only MCP tools (never mutating state without approval)
   const trace: AmbientEventRecord['autonomousReadOnlyTrace'] = [];
 
   if (params.service === 'checkout-ledger-svc') {
     const t1 = executeMCPToolCall({
       toolName: 'sql_execute_readonly_query',
       args: {
-        query: "SELECT deploy_id, service, git_sha, pr_number, canary_weight_pct, status FROM deployments WHERE service = 'checkout-ledger-svc'",
+        query:
+          "SELECT deploy_id, service, git_sha, pr_number, canary_weight_pct, status FROM deployments WHERE service = 'checkout-ledger-svc'",
         row_limit: 5
       },
       callerRole: 'readonly_analyst'
@@ -288,7 +270,7 @@ export async function ingestAmbientWebhookEvent(params: {
       toolName: 'sql_execute_readonly_query',
       args: t1.wireFrame.requestPayload,
       latencyMs: t1.wireFrame.latencyMs,
-      findingSummary: `Read-replica query returned active canary dep-9042 (git_sha=a8f31c9, PR #1842).`
+      findingSummary: 'Read-replica query returned active canary dep-9042 (git_sha=a8f31c9, PR #1842).'
     });
 
     const t2 = executeMCPToolCall({
@@ -302,21 +284,8 @@ export async function ingestAmbientWebhookEvent(params: {
       toolName: 'github_get_pr_diff',
       args: { pr_number: 1842 },
       latencyMs: t2.wireFrame.latencyMs,
-      findingSummary: `Diff inspection on PR #1842 detected unbounded SELECT ... FOR UPDATE lock in LedgerRepository.ts.`
-    });
-
-    const t3 = executeMCPToolCall({
-      toolName: 'infra_get_service_error_rate',
-      args: { service: 'checkout-ledger-svc' },
-      callerRole: 'readonly_analyst'
-    });
-    trace.push({
-      step: 3,
-      serverId: 'infra-mcp',
-      toolName: 'infra_get_service_error_rate',
-      args: { service: 'checkout-ledger-svc' },
-      latencyMs: t3.wireFrame.latencyMs,
-      findingSummary: `Service telemetry reports ${t3.result?.error_rate_pct}% 5xx rate and p99=${t3.result?.p99_latency_ms}ms.`
+      findingSummary:
+        'Diff inspection on PR #1842 detected unbounded SELECT ... FOR UPDATE lock in LedgerRepository.ts.'
     });
   } else {
     const t1 = executeMCPToolCall({
@@ -330,28 +299,13 @@ export async function ingestAmbientWebhookEvent(params: {
       toolName: 'github_blame_file_range',
       args: { file_path: 'src/http/WebhookClient.ts' },
       latencyMs: t1.wireFrame.latencyMs,
-      findingSummary: `Git blame identified SHA c4190ab (PR #1835) modifying tlsHandshakeTimeoutMs to 400ms.`
-    });
-
-    const t2 = executeMCPToolCall({
-      toolName: 'docs_get_runbook_by_service',
-      args: { service: params.service },
-      callerRole: 'readonly_analyst'
-    });
-    trace.push({
-      step: 2,
-      serverId: 'docs-mcp',
-      toolName: 'docs_get_runbook_by_service',
-      args: { service: params.service },
-      latencyMs: t2.wireFrame.latencyMs,
-      findingSummary: `Retrieved service runbook ${t2.result?.doc_id} for deterministic remediation steps.`
+      findingSummary: 'Git blame identified SHA c4190ab (PR #1835) modifying tlsHandshakeTimeoutMs to 400ms.'
     });
   }
 
-  // 3. Synthesize concise RCA using Gemini 3.8 Flash (if configured) or deterministic synthesis
   let rcaSynthesis =
     params.service === 'checkout-ledger-svc'
-      ? `Pre-computed RCA: Active canary dep-9042 (PR #1842, SHA a8f31c9) introduced an unbounded SELECT ... FOR UPDATE lock in LedgerRepository.ts, saturating PgBouncer (98%) and driving 5xx errors to 14.8%.`
+      ? 'Pre-computed RCA: Active canary dep-9042 (PR #1842, SHA a8f31c9) introduced an unbounded SELECT ... FOR UPDATE lock in LedgerRepository.ts, saturating PgBouncer (98%) and driving 5xx errors to 14.8%.'
       : `Pre-computed RCA: Commit c4190ab (PR #1835) lowered tlsHandshakeTimeoutMs to 400ms in WebhookClient.ts, causing cross-region TLS handshake timeouts on ${params.service}.`;
 
   const ai = getGenAI();
@@ -359,24 +313,16 @@ export async function ingestAmbientWebhookEvent(params: {
     try {
       const resp = await ai.models.generateContent({
         model: 'gemini-3.8-flash',
-        contents: `Synthesize a 2-sentence root-cause analysis for this ambient operations event based on the read-only MCP tool trace. Do not ask any questions.
-Event: ${params.payloadSummary}
-Service: ${params.service}
-Trace: ${JSON.stringify(trace)}`,
-        config: {
-          systemInstruction: playbookSearch.constructedSystemPrompt
-        }
+        contents: `Synthesize a 2-sentence root-cause analysis for this ambient operations event. Event: ${params.payloadSummary} Service: ${params.service}`,
+        config: { systemInstruction: playbookSearch.constructedSystemPrompt }
       });
-      if (resp.text) {
-        rcaSynthesis = resp.text.trim();
-      }
+      if (resp.text) rcaSynthesis = resp.text.trim();
     } catch {
-      // Keep deterministic synthesis
+      // Deterministic synthesis fallback
     }
   }
 
   const approvalToken = `appr_sig_${Date.now().toString().slice(-6)}`;
-
   const stagedMutations: StagedMutationAction[] =
     params.service === 'checkout-ledger-svc'
       ? [
@@ -398,10 +344,7 @@ Trace: ${JSON.stringify(trace)}`,
             toolName: 'jira_transition_ticket_status',
             description: 'Transition OPS-4821 status to Mitigated',
             requiredRole: 'support_tier2',
-            args: {
-              ticket_key: 'OPS-4821',
-              new_status: 'Mitigated'
-            },
+            args: { ticket_key: 'OPS-4821', new_status: 'Mitigated' },
             status: 'STAGED_FOR_1CLICK'
           },
           {
@@ -412,7 +355,7 @@ Trace: ${JSON.stringify(trace)}`,
             requiredRole: 'support_tier2',
             args: {
               channel_name: '#inc-prod-alerts',
-              resolution_message: `Executed 1-Click Rollback on dep-9042 (${eventId}). Service error rate restored to nominal.`
+              resolution_message: `Executed 1-Click Rollback on dep-9042 (${eventId}).`
             },
             status: 'STAGED_FOR_1CLICK'
           }
@@ -429,22 +372,9 @@ Trace: ${JSON.stringify(trace)}`,
               comment_body: `MonoPulse Ambient RCA (${eventId}): 400ms TLS timeout breaks cross-region EU handshakes.`
             },
             status: 'STAGED_FOR_1CLICK'
-          },
-          {
-            id: `mut-${Date.now()}-2`,
-            serverId: 'jira-mcp',
-            toolName: 'jira_append_root_cause_field',
-            description: 'Append verified commit SHA c4190ab to Jira OPS-4819 RCA notes',
-            requiredRole: 'eng_lead',
-            args: {
-              ticket_key: 'OPS-4819',
-              root_cause_notes: rcaSynthesis
-            },
-            status: 'STAGED_FOR_1CLICK'
           }
         ];
 
-  // Stage 1-Click Approval Block in Slack via slack-mcp
   executeMCPToolCall({
     toolName: 'slack_post_approval_block',
     args: {
@@ -481,8 +411,6 @@ Trace: ${JSON.stringify(trace)}`,
   };
 
   AMBIENT_EVENTS.unshift(record);
-
-  // Store hot session in Tier-1 Redis memory
   REDIS_TIER1_STORE.unshift({
     key: `monopulse:approval_staging:${eventId}`,
     namespace: 'approval_staging',
@@ -500,10 +428,6 @@ Trace: ${JSON.stringify(trace)}`,
   return record;
 }
 
-/**
- * Executes the staged 1-Click Approve / Edit mutations through the MCP boundary
- * with caller RBAC verification.
- */
 export function executeStagedApprovalBlock(params: {
   eventId: string;
   callerRole: RBACRole;
@@ -563,9 +487,5 @@ export function executeStagedApprovalBlock(params: {
     event.approvedAt = new Date().toISOString();
   }
 
-  return {
-    success: allSucceeded,
-    event,
-    results
-  };
+  return { success: allSucceeded, event, results };
 }

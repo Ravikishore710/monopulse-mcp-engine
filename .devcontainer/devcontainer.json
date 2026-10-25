@@ -1,0 +1,17 @@
+{
+  "name": "MonoPulse MCP Engine DevContainer",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "monopulse-engine",
+  "workspaceFolder": "/app",
+  "forwardPorts": [3000, 5432, 6379],
+  "postCreateCommand": "npm ci && npm test",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "vitest.explorer"
+      ]
+    }
+  }
+}

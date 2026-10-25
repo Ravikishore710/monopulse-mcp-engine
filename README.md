@@ -1,5 +1,7 @@
 # MonoPulse — Autonomous Internal Operations Monoagent & MCP Ecosystem
 
+[![CI Pipeline](https://github.com/Ravikishore710/monopulse-mcp-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Ravikishore710/monopulse-mcp-engine/actions)
+
 MonoPulse is an autonomous organizational operations monoagent and **Model Context Protocol (MCP)** runtime wired into internal SQL databases, GitHub, Slack, Jira, and engineering documentation.
 
 Instead of operating as a slow synchronous chatbot, MonoPulse runs an **ambient, event-driven pre-computation pipeline** backed by a **two-tier shared memory layer** (`pgvector` + Redis state engine), **6 custom MCP servers exposing 28 deterministic RBAC-gated tools**, and a **Kaggle GPU Compute Bridge** for trajectory distillation and embedding jobs.
@@ -9,7 +11,7 @@ Instead of operating as a slow synchronous chatbot, MonoPulse runs an **ambient,
 ## Core Architecture
 
 ### 1. Custom MCP Tool Surface (6 Servers · 28 Deterministic Tools)
-Every MCP `tools/call` invocation passes through a deterministic security gatekeeper before reaching any handler:
+Every MCP `tools/call` invocation passes through a deterministic security gatekeeper (`src/server/mcpRegistry.ts`) before reaching any handler (`src/server/mcpToolHandlers.ts`):
 1. **Strict Draft-07 JSON Schema Validation** (`additionalProperties: false`, required fields, enum & numeric range checks).
 2. **Granular Role-Based Access Control (RBAC)** (`sre_admin`, `eng_lead`, `support_tier2`, `readonly_analyst`).
 3. **AST / Keyword Read-Only SQL Guard** (`sql-ops-mcp` blocks `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `TRUNCATE` at the protocol boundary).
@@ -28,32 +30,44 @@ Every MCP `tools/call` invocation passes through a deterministic security gateke
 - **Tier-2 Semantic Playbook Vault (`pgvector` + `gemini-embedding-2-preview`)**: Stores distilled Markdown Playbook skills indexed with vector embeddings and dynamically injects top-$k$ matched playbooks into the system prompt via cosine similarity—reducing average steps-to-completion by **38%**.
 - **Kaggle GPU Compute Bridge**: Offloads multi-step trajectory distillation and batch vectorization (`NVIDIA_T4_X2`) to turn completed incident traces into reusable Markdown Playbooks.
 
-### 3. Ambient Event-Driven Pre-Computation (Solving the 72% Abandonment War Story)
-- Ingests incoming Slack, Jira, and GitHub webhooks (`POST /api/webhooks/ingest`).
-- Silently executes read-only MCP diagnostic tools in the background (`0` clarifying questions asked).
-- Stages a single **1-Click Approve / Edit** summary block (`POST /api/events/:eventId/approve`), driving weekly active operator retention to **84%**.
+### 3. Ambient Event-Driven Pre-Computation & Express Boundary Hardening
+- **Zod Request Validation (`src/server/validationSchemas.ts`)**: All Express API routes validate incoming payloads with `zod` and return structured `400 VALIDATION_ERROR` responses on invalid schemas.
+- **Pino Structured Logging (`src/server/logger.ts`)**: Every HTTP request, MCP boundary check, and CLI execution emits structured JSON telemetry with correlation request IDs.
+- **Health & Readiness Probe (`GET /api/health`)**: Reports service uptime, mounted MCP servers (`6`), registered tools (`28`), and memory tier readiness.
 
 ---
 
-## Quick Start
+## Quick Start (Install, Test, Build & Run)
 
-### 1. Install Dependencies
+### 1. Reproducible Installation
 ```bash
-npm install
+npm ci
 ```
 
 ### 2. Configure Environment Variables
-Copy `.env.example` to `.env` and set your `GEMINI_API_KEY` (and optional Kaggle GPU credentials):
 ```bash
 cp .env.example .env
 ```
 
-### 3. Start the Backend Engine & Live Protocol Inspector (Port 3000)
+### 3. Run Typecheck, Linter, Automated Test Suite & Production Build
+```bash
+npm run lint          # TypeScript strict typecheck (tsc --noEmit)
+npm run lint:eslint   # ESLint static analysis (--max-warnings=0)
+npm test              # Vitest unit & Supertest API integration suite
+npm run build         # Vite production bundle build
+```
+
+### 4. Start the Backend Engine & Live Protocol Inspector (Port 3000)
 ```bash
 npm run dev
 ```
 
-### 4. Run the Standalone CLI Harness
+### 5. Run in Isolated Docker Container Sandbox
+```bash
+docker compose up --build
+```
+
+### 6. Run the Standalone CLI Harness
 ```bash
 npm run cli -- mcp list
 npm run cli -- rbac test-unauthorized

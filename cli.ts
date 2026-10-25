@@ -1,40 +1,43 @@
 #!/usr/bin/env node
-/**
- * MonoPulse Standalone Command-Line Interface (CLI)
- * Usage:
- *   npm run cli -- mcp list
- *   npm run cli -- rbac test-unauthorized
- *   npm run cli -- webhook emit ledger
- *   npm run cli -- memory search "PgBouncer lock contention"
- *   npm run cli -- kaggle distill evt-ambient-901
- */
-
 import { MCP_SERVERS, MCP_TOOLS, executeMCPToolCall } from './src/server/mcpRegistry.ts';
-import { searchPlaybooksBySemanticSimilarity, distillTrajectoryViaKaggleGPU } from './src/server/memoryEngine.ts';
-import { AMBIENT_EVENTS, ingestAmbientWebhookEvent, executeStagedApprovalBlock } from './src/server/ambientOrchestrator.ts';
+import {
+  searchPlaybooksBySemanticSimilarity,
+  distillTrajectoryViaKaggleGPU
+} from './src/server/memoryEngine.ts';
+import {
+  AMBIENT_EVENTS,
+  ingestAmbientWebhookEvent,
+  executeStagedApprovalBlock
+} from './src/server/ambientOrchestrator.ts';
+import { logger } from './src/server/logger.ts';
 
 async function main() {
   const args = process.argv.slice(2);
   const sub = args.join(' ').trim() || 'help';
 
   if (sub === 'help' || sub === '--help') {
-    console.log(`MonoPulse Autonomous Operations Engine CLI
-Commands:
-  npm run cli -- mcp list
-  npm run cli -- rbac test-unauthorized
-  npm run cli -- webhook emit ledger
-  npm run cli -- memory search "PgBouncer lock contention"
-  npm run cli -- kaggle distill evt-ambient-901`);
+    logger.info(
+      {
+        commands: [
+          'npm run cli -- mcp list',
+          'npm run cli -- rbac test-unauthorized',
+          'npm run cli -- webhook emit ledger',
+          'npm run cli -- memory search "PgBouncer lock contention"',
+          'npm run cli -- kaggle distill evt-ambient-901'
+        ]
+      },
+      'MonoPulse Autonomous Operations Engine CLI Help'
+    );
     return;
   }
 
   if (sub.startsWith('mcp list')) {
     for (const s of MCP_SERVERS) {
       const tools = MCP_TOOLS.filter((t) => t.serverId === s.id);
-      console.log(`\n[${s.id}] ${s.name} (${tools.length} tools)`);
-      for (const t of tools) {
-        console.log(`  - ${t.name} (${t.isMutation ? 'MUTATION' : 'READ-ONLY'}) roles=[${t.allowedRoles.join(',')}]`);
-      }
+      logger.info(
+        { serverId: s.id, toolCount: tools.length, tools: tools.map((t) => t.name) },
+        `MCP Server: ${s.name}`
+      );
     }
     return;
   }
@@ -45,7 +48,7 @@ Commands:
       args: { deploy_id: 'dep-9042', reason: 'CLI test' },
       callerRole: 'readonly_analyst'
     });
-    console.log('RBAC Boundary Check:', JSON.stringify(res1, null, 2));
+    logger.warn({ boundaryCheck: res1 }, 'RBAC Boundary Verification');
     return;
   }
 
@@ -56,14 +59,14 @@ Commands:
       channelOrTicket: '#inc-prod-alerts · OPS-4821',
       payloadSummary: 'CLI emitted P0 PgBouncer pool saturation alert on canary dep-9042'
     });
-    console.log('Ambient Event Pre-Computed:', JSON.stringify(evt, null, 2));
+    logger.info({ eventId: evt.eventId, rca: evt.rootCauseSynthesis }, 'Ambient Event Pre-Computed');
     return;
   }
 
   if (sub.startsWith('memory search')) {
     const q = args.slice(2).join(' ') || 'PgBouncer connection pool exhaustion';
     const res = await searchPlaybooksBySemanticSimilarity(q, 3);
-    console.log(JSON.stringify(res, null, 2));
+    logger.info({ query: q, matches: res.matches.length }, 'Semantic Playbook Search Results');
     return;
   }
 
@@ -79,7 +82,7 @@ Commands:
         outcomeSummary: t.findingSummary
       }))
     });
-    console.log(JSON.stringify(res, null, 2));
+    logger.info({ jobId: res.job.jobId, playbookId: res.newPlaybook.id }, 'Kaggle GPU Distillation');
     return;
   }
 
@@ -88,11 +91,11 @@ Commands:
       eventId: AMBIENT_EVENTS[0].eventId,
       callerRole: 'sre_admin'
     });
-    console.log(JSON.stringify(out, null, 2));
+    logger.info({ eventId: out.event.eventId, success: out.success }, 'Executed 1-Click Approval');
   }
 }
 
-main().catch((err) => {
-  console.error(err);
+main().catch((err: unknown) => {
+  logger.error({ err: err instanceof Error ? err.message : String(err) }, 'CLI execution error');
   process.exit(1);
 });
