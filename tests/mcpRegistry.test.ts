@@ -2,17 +2,18 @@ import { describe, expect, it } from 'vitest';
 import {
   MCP_SERVERS,
   MCP_TOOLS,
+  WIRE_LOG,
   executeMCPToolCall,
   validateMCPToolSchema
 } from '../src/server/mcpRegistry.ts';
 
 describe('MCP Registry & Tool Boundary Gatekeeper', () => {
-  it('registers exactly 6 custom MCP servers and 28 deterministic tools', () => {
+  it('registers all 6 custom MCP servers and 28 deterministic tools', () => {
     expect(MCP_SERVERS).toHaveLength(6);
     expect(MCP_TOOLS).toHaveLength(28);
   });
 
-  it('executes a valid read-only SQL query for readonly_analyst role', () => {
+  it('executes a valid read-only SQL query and records a wire frame', () => {
     const res = executeMCPToolCall({
       toolName: 'sql_execute_readonly_query',
       args: {
@@ -26,10 +27,12 @@ describe('MCP Registry & Tool Boundary Gatekeeper', () => {
     expect(res.httpCode).toBe(200);
     expect(res.result?.readOnlyVerified).toBe(true);
     expect(res.result?.rows.length).toBeGreaterThan(0);
+    expect(WIRE_LOG.length).toBeGreaterThan(0);
+    expect(res.wireFrame.status).toBe('SUCCESS');
   });
 
-  it('returns RBAC_DENIED (HTTP 403) when readonly_analyst invokes infra_trigger_canary_rollback', () => {
-    const res = executeMCPToolCall({
+  it('returns RBAC_DENIED (HTTP 403) when unauthorized roles invoke mutating or restricted tools', () => {
+    const rollbackDenied = executeMCPToolCall({
       toolName: 'infra_trigger_canary_rollback',
       args: {
         deploy_id: 'dep-9042',
@@ -38,13 +41,36 @@ describe('MCP Registry & Tool Boundary Gatekeeper', () => {
       callerRole: 'readonly_analyst'
     });
 
-    expect(res.status).toBe('RBAC_DENIED');
-    expect(res.httpCode).toBe(403);
-    expect(res.error?.code).toBe(-32003);
+    expect(rollbackDenied.status).toBe('RBAC_DENIED');
+    expect(rollbackDenied.httpCode).toBe(403);
+    expect(rollbackDenied.error?.code).toBe(-32003);
+    expect(rollbackDenied.error?.data?.requiredRoles).toContain('sre_admin');
+    expect(rollbackDenied.wireFrame.status).toBe('RBAC_DENIED');
+
+    const supportDeniedLeadTool = executeMCPToolCall({
+      toolName: 'github_post_pr_review_comment',
+      args: {
+        pr_number: 1842,
+        comment_body: 'Support tier attempting PR review comment without lead privileges'
+      },
+      callerRole: 'support_tier2'
+    });
+
+    expect(supportDeniedLeadTool.status).toBe('RBAC_DENIED');
+    expect(supportDeniedLeadTool.httpCode).toBe(403);
   });
 
-  it('returns SCHEMA_INVALID (HTTP 400) when undeclared properties or out-of-range integers are supplied', () => {
-    const res = executeMCPToolCall({
+  it('returns SCHEMA_INVALID (HTTP 400/404) for missing required fields, undeclared properties, type mismatches, and unknown tools', () => {
+    const unknownToolRes = executeMCPToolCall({
+      toolName: 'non_existent_mcp_tool',
+      args: {},
+      callerRole: 'sre_admin'
+    });
+    expect(unknownToolRes.status).toBe('SCHEMA_INVALID');
+    expect(unknownToolRes.httpCode).toBe(404);
+    expect(unknownToolRes.error?.code).toBe(-32601);
+
+    const schemaViolationRes = executeMCPToolCall({
       toolName: 'sql_execute_readonly_query',
       args: {
         query: 'SELECT * FROM deployments',
@@ -54,13 +80,22 @@ describe('MCP Registry & Tool Boundary Gatekeeper', () => {
       callerRole: 'sre_admin'
     });
 
-    expect(res.status).toBe('SCHEMA_INVALID');
-    expect(res.httpCode).toBe(400);
-    expect(res.error?.code).toBe(-32602);
-    expect(res.error?.data?.violations).toHaveLength(2);
+    expect(schemaViolationRes.status).toBe('SCHEMA_INVALID');
+    expect(schemaViolationRes.httpCode).toBe(400);
+    expect(schemaViolationRes.error?.code).toBe(-32602);
+    expect(schemaViolationRes.error?.data?.violations).toHaveLength(2);
+    expect(schemaViolationRes.wireFrame.status).toBe('SCHEMA_INVALID');
+
+    const missingRequiredRes = executeMCPToolCall({
+      toolName: 'slack_broadcast_resolution',
+      args: { channel_name: '#inc-prod-alerts' },
+      callerRole: 'sre_admin'
+    });
+    expect(missingRequiredRes.status).toBe('SCHEMA_INVALID');
+    expect(missingRequiredRes.httpCode).toBe(400);
   });
 
-  it('returns SQL_MUTATION_BLOCKED (HTTP 403) when DDL or DML statements are sent to sql-ops-mcp', () => {
+  it('returns SQL_MUTATION_BLOCKED (HTTP 403) when DDL, DML, stacked queries, or SQL comments are sent to sql-ops-mcp', () => {
     const dropRes = executeMCPToolCall({
       toolName: 'sql_execute_readonly_query',
       args: { query: 'DROP TABLE deployments;' },
@@ -69,6 +104,7 @@ describe('MCP Registry & Tool Boundary Gatekeeper', () => {
     expect(dropRes.status).toBe('SQL_MUTATION_BLOCKED');
     expect(dropRes.httpCode).toBe(403);
     expect(dropRes.error?.code).toBe(-32004);
+    expect(dropRes.wireFrame.status).toBe('SQL_MUTATION_BLOCKED');
 
     const deleteRes = executeMCPToolCall({
       toolName: 'sql_execute_readonly_query',
@@ -77,15 +113,29 @@ describe('MCP Registry & Tool Boundary Gatekeeper', () => {
     });
     expect(deleteRes.status).toBe('SQL_MUTATION_BLOCKED');
 
+    const updateExplainRes = executeMCPToolCall({
+      toolName: 'sql_explain_query_plan',
+      args: { query: "UPDATE deployments SET status = 'HEALTHY'" },
+      callerRole: 'sre_admin'
+    });
+    expect(updateExplainRes.status).toBe('SQL_MUTATION_BLOCKED');
+
     const stackedRes = executeMCPToolCall({
       toolName: 'sql_execute_readonly_query',
       args: { query: 'SELECT 1; SELECT * FROM pg_stat_activity' },
       callerRole: 'sre_admin'
     });
     expect(stackedRes.status).toBe('SQL_MUTATION_BLOCKED');
+
+    const commentInjectionRes = executeMCPToolCall({
+      toolName: 'sql_execute_readonly_query',
+      args: { query: 'SELECT * FROM deployments -- bypass filter' },
+      callerRole: 'sre_admin'
+    });
+    expect(commentInjectionRes.status).toBe('SQL_MUTATION_BLOCKED');
   });
 
-  it('validates enum constraints strictly in validateMCPToolSchema', () => {
+  it('validates enum and numeric constraints strictly in validateMCPToolSchema', () => {
     const tool = MCP_TOOLS.find((t) => t.name === 'sql_inspect_table_schema')!;
     const check = validateMCPToolSchema(tool, { table_name: 'non_existent_table' });
     expect(check.valid).toBe(false);
