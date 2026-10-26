@@ -9,7 +9,7 @@ import { WebhookIngestSchema, EventApprovalSchema, MemorySearchSchema, KaggleDis
 import { createRequestLogContext } from './logger.ts';
 import { computeWebhookSignature, createRateLimitMiddleware, resolveVerifiedCallerRole, securityHeadersMiddleware, verifyWebhookReplayWindow, verifyWebhookSignature } from './cryptoSecurity.ts';
 import { acquireEventApprovalLock, computeAndRecordWebhookFingerprint, getSqliteDatabaseSummary, releaseEventApprovalLock } from './sqliteEngine.ts';
-import { getConnectorStatusSummary, normalizeIncomingWebhookPayload } from './liveConnectors.ts';
+import { getConnectorStatusSummary, isSimulationModeActive, normalizeIncomingWebhookPayload } from './liveConnectors.ts';
 import { processCliCommand } from './cliProcessor.ts';
 import { MCP_PROMPTS, MCP_PROTOCOL_VERSION, MCP_RESOURCES, executeSingleMcpRpcPayload } from './mcpProtocolSpec.ts';
 import { broadcastSseEvent, incrementWebhookMetric, registerSseClient, renderPrometheusMetrics, traceContextMiddleware } from './observabilityEngine.ts';
@@ -61,7 +61,7 @@ export function createMonoPulseApp() {
     const reqLogger = createRequestLogContext('GET /api/system/state');
     const stateDigest = crypto
       .createHash('sha1')
-      .update(`${WIRE_LOG.length}:${AMBIENT_EVENTS.length}:${AMBIENT_EVENTS[0]?.approvalState || ''}:${PGVECTOR_PLAYBOOKS.length}`)
+      .update(`${WIRE_LOG.length}:${AMBIENT_EVENTS.length}:${AMBIENT_EVENTS[0]?.approvalState || ''}:${PGVECTOR_PLAYBOOKS.length}:${isSimulationModeActive()}`)
       .digest('hex')
       .slice(0, 12);
     const etag = `W/"mp-${stateDigest}"`;
@@ -79,6 +79,7 @@ export function createMonoPulseApp() {
     res.json({
       engineVersion: 'MonoPulse Core v3.7.0-Production',
       architecturePosture: 'AMBIENT_EVENT_PRECOMPUTE',
+      simulationMode: isSimulationModeActive(),
       metrics: {
         mcpServersCount: MCP_SERVERS.length,
         mcpToolsCount: MCP_TOOLS.length,

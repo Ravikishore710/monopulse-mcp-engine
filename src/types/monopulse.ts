@@ -132,6 +132,7 @@ export interface KaggleDistillationJob {
 export interface SystemState {
   engineVersion: string;
   architecturePosture: string;
+  simulationMode?: boolean;
   metrics: {
     mcpServersCount: number;
     mcpToolsCount: number;

@@ -21,6 +21,16 @@ interface CircuitBreakerRecord {
 const circuitBreakers = new Map<string, CircuitBreakerRecord>();
 const FAILURE_THRESHOLD = 3;
 const COOLDOWN_MS = 30_000;
+let simulationModeActive = false;
+
+export function isSimulationModeActive(): boolean {
+  return simulationModeActive;
+}
+
+export function setSimulationModeActive(enabled: boolean): boolean {
+  simulationModeActive = Boolean(enabled);
+  return simulationModeActive;
+}
 
 export function getConnectorCircuitState(serverId: string): CircuitBreakerRecord {
   const existing = circuitBreakers.get(serverId) || {
@@ -58,6 +68,14 @@ export async function executeWithRetryAndCircuitBreaker<T>(
   fallback: () => T,
   maxRetries = 2
 ): Promise<{ data: T; liveExecuted: boolean; attempts: number; circuitState: string }> {
+  if (simulationModeActive) {
+    return {
+      data: fallback(),
+      liveExecuted: false,
+      attempts: 0,
+      circuitState: 'CLOSED'
+    };
+  }
   const breaker = getConnectorCircuitState(serverId);
   if (breaker.state === 'OPEN') {
     return {
@@ -97,6 +115,9 @@ export async function executeWithRetryAndCircuitBreaker<T>(
 }
 
 export function getConnectorStatusSummary(): ConnectorStatus[] {
+  const ghLive = !simulationModeActive && Boolean(process.env.GITHUB_TOKEN);
+  const slackLive = !simulationModeActive && Boolean(process.env.SLACK_BOT_TOKEN);
+  const jiraLive = !simulationModeActive && Boolean(process.env.JIRA_API_TOKEN);
   const raw = [
     {
       serverId: 'sql-ops-mcp',
@@ -108,29 +129,31 @@ export function getConnectorStatusSummary(): ConnectorStatus[] {
     {
       serverId: 'github-mcp',
       provider: 'GitHub REST API v3',
-      mode: (process.env.GITHUB_TOKEN ? 'LIVE_REST_API' : 'DETERMINISTIC_FALLBACK') as
+      mode: (ghLive ? 'LIVE_REST_API' : 'DETERMINISTIC_FALLBACK') as
         | 'LIVE_REST_API'
         | 'DETERMINISTIC_FALLBACK',
       envVarConfigured: Boolean(process.env.GITHUB_TOKEN),
-      endpointBase: 'https://api.github.com'
+      endpointBase: simulationModeActive ? 'mock://github-sandbox' : 'https://api.github.com'
     },
     {
       serverId: 'slack-mcp',
       provider: 'Slack Web API',
-      mode: (process.env.SLACK_BOT_TOKEN ? 'LIVE_REST_API' : 'DETERMINISTIC_FALLBACK') as
+      mode: (slackLive ? 'LIVE_REST_API' : 'DETERMINISTIC_FALLBACK') as
         | 'LIVE_REST_API'
         | 'DETERMINISTIC_FALLBACK',
       envVarConfigured: Boolean(process.env.SLACK_BOT_TOKEN),
-      endpointBase: 'https://slack.com/api'
+      endpointBase: simulationModeActive ? 'mock://slack-sandbox' : 'https://slack.com/api'
     },
     {
       serverId: 'jira-mcp',
       provider: 'Atlassian Jira Cloud REST v3',
-      mode: (process.env.JIRA_API_TOKEN ? 'LIVE_REST_API' : 'DETERMINISTIC_FALLBACK') as
+      mode: (jiraLive ? 'LIVE_REST_API' : 'DETERMINISTIC_FALLBACK') as
         | 'LIVE_REST_API'
         | 'DETERMINISTIC_FALLBACK',
       envVarConfigured: Boolean(process.env.JIRA_API_TOKEN),
-      endpointBase: process.env.JIRA_BASE_URL || 'https://api.atlassian.com'
+      endpointBase: simulationModeActive
+        ? 'mock://jira-sandbox'
+        : process.env.JIRA_BASE_URL || 'https://api.atlassian.com'
     },
     {
       serverId: 'docs-runbook-mcp',
@@ -245,10 +268,35 @@ export function normalizeIncomingWebhookPayload(body: Record<string, any>): {
 }
 
 export async function verifyLiveExternalConnectors(): Promise<{
+  simulationMode?: boolean;
   github: { configured: boolean; reachable: boolean; repo?: string; statusCode?: number; detail?: string };
   jira: { configured: boolean; reachable: boolean; baseUrl?: string; user?: string; statusCode?: number; detail?: string };
   slack: { configured: boolean; mode: string };
 }> {
+  if (simulationModeActive) {
+    return {
+      simulationMode: true,
+      github: {
+        configured: Boolean(process.env.GITHUB_TOKEN),
+        reachable: false,
+        repo: 'mock://org-internal/checkout-ledger-svc',
+        statusCode: 200,
+        detail: 'SIMULATION_MODE_ACTIVE (Mock GitHub PRs #1842 & #1835 — 0 production side effects)'
+      },
+      jira: {
+        configured: Boolean(process.env.JIRA_API_TOKEN),
+        reachable: false,
+        baseUrl: 'mock://jira-sandbox.local',
+        user: 'simulation-operator@monopulse.local',
+        statusCode: 200,
+        detail: 'SIMULATION_MODE_ACTIVE (Mock Jira Tickets OPS-4821 & OPS-4819 — 0 production side effects)'
+      },
+      slack: {
+        configured: false,
+        mode: 'SIMULATION_MOCK_SANDBOX'
+      }
+    };
+  }
   const ghToken = process.env.GITHUB_TOKEN;
   const ghRepo = process.env.GITHUB_REPO || 'Ravikishore710/monopulse-mcp-engine';
   let githubStatus: { configured: boolean; reachable: boolean; repo?: string; statusCode?: number; detail?: string } = {

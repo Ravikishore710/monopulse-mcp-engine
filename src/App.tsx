@@ -75,7 +75,7 @@ export default function App() {
       if ('EventSource' in window) {
         const es = new EventSource('/api/events/stream');
         const refresh = () => fetchSystemState();
-        ['webhook.ingested', 'approval.executed', 'playbook.distilled', 'slack.message.posted'].forEach((evt) =>
+        ['webhook.ingested', 'approval.executed', 'playbook.distilled', 'slack.message.posted', 'simulation.toggled'].forEach((evt) =>
           es.addEventListener(evt, refresh)
         );
         return () => {
@@ -233,18 +233,14 @@ export default function App() {
           <button
             onClick={() => setPaletteOpen(true)}
             aria-label="Open Command Palette"
-            className="px-2.5 py-1.5 text-xs font-mono border border-[#1F2937] bg-[#111827] text-[#9CA3AF] hover:text-[#F9FAFB] rounded-md cursor-pointer"
+            className={`px-2.5 py-1.5 text-xs font-mono border rounded-md cursor-pointer ${
+              state.simulationMode ? 'border-[#D97706] bg-[#D97706]/15 text-[#D97706]' : 'border-[#1F2937] bg-[#111827] text-[#9CA3AF] hover:text-[#F9FAFB]'
+            }`}
           >
-            ⌘K
+            {state.simulationMode ? '⌘K · SIM ON' : '⌘K'}
           </button>
           <button
-            onClick={() =>
-              handleEmitWebhook({
-                source: 'slack.incident.webhook',
-                service: 'checkout-ledger-svc',
-                summary: '[FIRING: P0] checkout-ledger-svc 5xx error spike (14.8%) & PgBouncer saturation (98%) after canary dep-9042 rollout.'
-              })
-            }
+            onClick={() => handleEmitWebhook({ source: 'slack.incident.webhook', service: 'checkout-ledger-svc', summary: '[FIRING: P0] checkout-ledger-svc 5xx error spike (14.8%) & PgBouncer saturation (98%) after canary dep-9042 rollout.' })}
             disabled={ingestingWebhook}
             className="px-4 py-2 text-xs font-semibold text-white bg-[#2563EB] rounded-md hover:bg-blue-500 transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
           >
@@ -255,13 +251,7 @@ export default function App() {
 
       <div className="flex md:hidden items-center gap-2 overflow-x-auto px-4 py-2 border-b border-[#1F2937] bg-[#0E131F]">
         {MODULE_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveModule(tab.id)}
-            className={`px-3 py-1 rounded text-xs font-medium whitespace-nowrap ${
-              activeModule === tab.id ? 'bg-[#2563EB] text-white' : 'text-[#9CA3AF]'
-            }`}
-          >
+          <button key={tab.id} onClick={() => setActiveModule(tab.id)} className={`px-3 py-1 rounded text-xs font-medium whitespace-nowrap ${activeModule === tab.id ? 'bg-[#2563EB] text-white' : 'text-[#9CA3AF]'}`}>
             {tab.label}
           </button>
         ))}
@@ -271,16 +261,15 @@ export default function App() {
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         tools={state.mcpTools}
+        simulationMode={Boolean(state.simulationMode)}
+        onToggleSimulationMode={async (enabled) => {
+          await fetch('/api/system/simulation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
+          await fetchSystemState();
+        }}
         onSelectModule={setActiveModule}
         onSelectRole={setCallerRole}
         onSelectToolServer={setSelectedServerFilter}
-        onEmitWebhook={() =>
-          handleEmitWebhook({
-            source: 'slack.incident.webhook',
-            service: 'checkout-ledger-svc',
-            summary: '[FIRING: P0] Command Palette triggered canary dep-9042 diagnostic trace'
-          })
-        }
+        onEmitWebhook={() => handleEmitWebhook({ source: 'slack.incident.webhook', service: 'checkout-ledger-svc', summary: '[FIRING: P0] Command Palette triggered canary dep-9042 diagnostic trace' })}
       />
 
       <div className="flex-1 flex min-h-0">

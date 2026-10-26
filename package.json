@@ -10,6 +10,7 @@
     "mcp:stdio": "NODE_NO_WARNINGS=1 tsx cli.ts --mcp-stdio",
     "test": "NODE_NO_WARNINGS=1 vitest run",
     "test:api": "NODE_NO_WARNINGS=1 vitest run tests/apiRoutes.test.ts tests/mcpProtocolAndObservability.test.ts tests/sqliteAndCrypto.test.ts tests/durableGovernanceAndNormalization.test.ts",
+    "test:load": "NODE_NO_WARNINGS=1 tsx scripts/loadTest.ts",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",

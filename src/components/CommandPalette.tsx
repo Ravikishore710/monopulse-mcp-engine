@@ -5,6 +5,8 @@ interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
   tools: MCPToolDefinition[];
+  simulationMode?: boolean;
+  onToggleSimulationMode?: (nextState: boolean) => void;
   onSelectModule: (mod: ActiveModule) => void;
   onSelectRole: (role: RBACRole) => void;
   onSelectToolServer: (serverId: string) => void;
@@ -15,6 +17,8 @@ export function CommandPalette({
   open,
   onClose,
   tools,
+  simulationMode = false,
+  onToggleSimulationMode,
   onSelectModule,
   onSelectRole,
   onSelectToolServer,
@@ -37,6 +41,12 @@ export function CommandPalette({
 
   if (!open) return null;
 
+  const handleToggleSim = () => {
+    if (onToggleSimulationMode) {
+      onToggleSimulationMode(!simulationMode);
+    }
+  };
+
   const q = query.trim().toLowerCase();
   const staticCommands: {
     id: string;
@@ -44,6 +54,12 @@ export function CommandPalette({
     label: string;
     action: () => void;
   }[] = [
+    {
+      id: 'toggle-simulation',
+      category: 'Simulation',
+      label: `Toggle Simulation Mode (Mock Slack, Jira, GitHub) — Currently: ${simulationMode ? 'ON (Mock Data)' : 'OFF (Live Connectors)'}`,
+      action: () => handleToggleSim()
+    },
     {
       id: 'mod-ambient',
       category: 'Module',
@@ -126,7 +142,7 @@ export function CommandPalette({
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Type a command, module, RBAC role, or MCP tool name..."
+            placeholder="Type a command, Simulation toggle, module, RBAC role, or MCP tool..."
             className="w-full bg-transparent text-xs font-mono text-[#F9FAFB] focus:outline-none"
           />
           <button
@@ -136,6 +152,41 @@ export function CommandPalette({
             ESC
           </button>
         </div>
+
+        <div className="px-4 py-3 border-b border-[#1F2937] bg-[#0E131F] flex items-center justify-between gap-4">
+          <div>
+            <div className="text-xs font-mono font-semibold text-[#F9FAFB] flex items-center gap-2">
+              <span>Simulation Mode (Safe Sandbox Isolation)</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                  simulationMode
+                    ? 'bg-[#D97706]/20 text-[#D97706] border border-[#D97706]/50'
+                    : 'bg-[#16A34A]/20 text-[#16A34A] border border-[#16A34A]/50'
+                }`}
+              >
+                {simulationMode ? 'SIMULATION ON (MOCK DATA)' : 'LIVE CONNECTORS READY'}
+              </span>
+            </div>
+            <p className="text-[11px] text-[#9CA3AF] mt-0.5">
+              When active, forces mock data for all external MCP connectors (Slack, Jira, GitHub) with zero production side effects.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={simulationMode}
+            aria-label="Toggle Simulation Mode"
+            onClick={handleToggleSim}
+            className={`px-3 py-1.5 rounded text-xs font-mono font-semibold transition-colors cursor-pointer shrink-0 ${
+              simulationMode
+                ? 'bg-[#D97706] text-white hover:bg-amber-500'
+                : 'bg-[#1F2937] text-[#F9FAFB] hover:bg-slate-700'
+            }`}
+          >
+            {simulationMode ? 'Disable Simulation' : 'Enable Simulation'}
+          </button>
+        </div>
+
         <div className="max-h-80 overflow-y-auto divide-y divide-[#1F2937]">
           {filtered.map((item) => (
             <button

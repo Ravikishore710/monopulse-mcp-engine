@@ -3,52 +3,25 @@ import { CheckCircle2, Hash, MessageSquare, Play, Send, ShieldAlert, Users } fro
 import { RBACRole } from '../types/monopulse.ts';
 
 interface SlackDummyUser {
-  id: string;
-  handle: string;
-  displayName: string;
-  title: string;
-  role: RBACRole | 'webhook';
-  avatarInitials: string;
-  status: 'online' | 'busy' | 'bot';
+  id: string; handle: string; displayName: string; title: string;
+  role: RBACRole | 'webhook'; avatarInitials: string; status: 'online' | 'busy' | 'bot';
 }
 
 interface SlackWorkspaceData {
-  workspaceName: string;
-  workspaceDomain: string;
-  activeUsersCount: number;
-  users: SlackDummyUser[];
+  workspaceName: string; workspaceDomain: string; activeUsersCount: number; users: SlackDummyUser[];
   threads: {
-    thread_ts: string;
-    channel_id: string;
-    channel_name: string;
-    topic: string;
+    thread_ts: string; channel_id: string; channel_name: string; topic: string;
     messages: { user: string; role: string; ts: string; text: string }[];
     linkedAmbientEvents: {
-      eventId: string;
-      service: string;
-      summary: string;
-      rootCauseSynthesis: string;
-      approvalState: string;
-      approvedByRole?: string;
-      approvalToken: string;
-      precomputeLatencyMs: number;
+      eventId: string; service: string; summary: string; rootCauseSynthesis: string;
+      approvalState: string; approvedByRole?: string; approvalToken: string; precomputeLatencyMs: number;
     }[];
   }[];
 }
 
 interface MultiUserSimulationResult {
-  scenarioName: string;
-  allStepsPassed: boolean;
-  testedEventId: string;
-  steps: {
-    step: number;
-    actor: string;
-    role: string;
-    action: string;
-    expectedBehavior: string;
-    actualOutcome: string;
-    passed: boolean;
-  }[];
+  scenarioName: string; allStepsPassed: boolean; testedEventId: string;
+  steps: { step: number; actor: string; role: string; action: string; expectedBehavior: string; actualOutcome: string; passed: boolean }[];
   liveExternalConnectors: {
     github: { configured: boolean; reachable: boolean; status: string; detail: string };
     jira: { configured: boolean; reachable: boolean; status: string; detail: string };
@@ -56,9 +29,7 @@ interface MultiUserSimulationResult {
 }
 
 interface SlackWorkspaceSimulatorProps {
-  callerRole: RBACRole;
-  onChangeCallerRole?: (role: RBACRole) => void;
-  onRefreshSystemState: () => Promise<void>;
+  callerRole: RBACRole; onChangeCallerRole?: (role: RBACRole) => void; onRefreshSystemState: () => Promise<void>;
 }
 
 export function SlackWorkspaceSimulator({
@@ -76,6 +47,7 @@ export function SlackWorkspaceSimulator({
   const [posting, setPosting] = useState<boolean>(false);
   const [runningMultiUserSim, setRunningMultiUserSim] = useState<boolean>(false);
   const [simResult, setSimResult] = useState<MultiUserSimulationResult | null>(null);
+  const [loadTestSummary, setLoadTestSummary] = useState<string | null>(null);
 
   const fetchWorkspace = async () => {
     try {
@@ -93,9 +65,7 @@ export function SlackWorkspaceSimulator({
 
   const handleSelectPersona = (u: SlackDummyUser) => {
     setSelectedUserHandle(u.handle);
-    if (u.role !== 'webhook' && onChangeCallerRole) {
-      onChangeCallerRole(u.role);
-    }
+    if (u.role !== 'webhook' && onChangeCallerRole) onChangeCallerRole(u.role);
   };
 
   const handlePostSlackMessage = async (e: React.FormEvent) => {
@@ -126,13 +96,25 @@ export function SlackWorkspaceSimulator({
   const handleRunMultiUserScenario = async () => {
     setRunningMultiUserSim(true);
     try {
-      const res = await fetch('/api/slack/simulate-multiuser', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
+      const res = await fetch('/api/slack/simulate-multiuser', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       const data = await res.json();
       setSimResult(data);
       if (data.workspace) setWorkspace(data.workspace);
+      await onRefreshSystemState();
+    } finally {
+      setRunningMultiUserSim(false);
+    }
+  };
+
+  const handleRunBurstLoadTest = async () => {
+    setRunningMultiUserSim(true);
+    try {
+      const res = await fetch('/api/system/load-test', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const report = await res.json();
+      setLoadTestSummary(
+        `LOAD TEST ${report.status}: ${report.totalConcurrentOperations} concurrent ops in ${report.durationMs}ms (~${report.throughputOpsPerSec} ops/s) · Webhooks=${report.webhookBurst.uniqueIngested} unique / ${report.webhookBurst.deduplicatedCount} deduped · RPCs=${report.mcpRpcBurst.allowedSuccessCount} allowed / ${report.mcpRpcBurst.rbacDeniedCount} RBAC denied / ${report.mcpRpcBurst.sqlMutationBlockedCount} SQL blocked · 4-Way Approval Race Winner=${report.approvalRaceConditionTest.winnerCount} (${report.approvalRaceConditionTest.blockedDuplicateCount} blocked) · HashChain=${report.stateIntegrity.auditHashChainValid ? 'VALID' : 'BROKEN'}`
+      );
+      await fetchWorkspace();
       await onRefreshSystemState();
     } finally {
       setRunningMultiUserSim(false);
@@ -147,8 +129,7 @@ export function SlackWorkspaceSimulator({
     );
   }
 
-  const activeThread =
-    workspace.threads.find((t) => t.channel_id === selectedChannelId) || workspace.threads[0];
+  const activeThread = workspace.threads.find((t) => t.channel_id === selectedChannelId) || workspace.threads[0];
   const humanUsers = workspace.users.filter((u) => u.role !== 'webhook');
 
   return (
@@ -162,23 +143,34 @@ export function SlackWorkspaceSimulator({
             </h2>
           </div>
           <p className="text-xs text-[#9CA3AF] mt-1">
-            Pre-populated with 6 dummy team personas across 4 RBAC tiers and 3 live incident channels so you can test multi-user Slack workflows without an external Slack workspace.
+            Pre-populated with 6 dummy team personas across 4 RBAC tiers and live incident channels so you can test multi-user Slack workflows and burst load resilience.
           </p>
         </div>
 
-        <button
-          onClick={handleRunMultiUserScenario}
-          disabled={runningMultiUserSim}
-          className="px-4 py-2 bg-[#16A34A] hover:bg-green-500 text-white text-xs font-semibold rounded-md transition-colors flex items-center gap-2 cursor-pointer whitespace-nowrap disabled:opacity-50"
-        >
-          <Play className="w-3.5 h-3.5" />
-          <span>
-            {runningMultiUserSim
-              ? 'Running 5-User Scenario...'
-              : 'Run 5-User Concurrency & Live API Verification'}
-          </span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={handleRunBurstLoadTest}
+            disabled={runningMultiUserSim}
+            className="px-3.5 py-2 border border-[#D97706] bg-[#D97706]/15 hover:bg-[#D97706]/25 text-[#F9FAFB] text-xs font-mono font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap disabled:opacity-50"
+          >
+            {runningMultiUserSim ? 'Running Burst...' : 'Run Concurrent Burst Load Test'}
+          </button>
+          <button
+            onClick={handleRunMultiUserScenario}
+            disabled={runningMultiUserSim}
+            className="px-4 py-2 bg-[#16A34A] hover:bg-green-500 text-white text-xs font-semibold rounded-md transition-colors flex items-center gap-2 cursor-pointer whitespace-nowrap disabled:opacity-50"
+          >
+            <Play className="w-3.5 h-3.5" />
+            <span>{runningMultiUserSim ? 'Running...' : 'Run 5-User Concurrency & Live API Verification'}</span>
+          </button>
+        </div>
       </div>
+
+      {loadTestSummary && (
+        <div className="p-3 rounded-md border border-[#D97706]/60 bg-[#0B0F17] text-xs font-mono text-[#F9FAFB]">
+          {loadTestSummary}
+        </div>
+      )}
 
       {simResult && (
         <div className="border border-[#16A34A]/60 bg-[#0B0F17] rounded-lg p-4 space-y-4">

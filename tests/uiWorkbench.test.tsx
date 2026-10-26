@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ErrorBoundary } from '../src/components/ErrorBoundary.tsx';
 import { CliPanel } from '../src/components/CliPanel.tsx';
 import { KaggleGpuDashboard } from '../src/components/KaggleGpuDashboard.tsx';
+import { CommandPalette } from '../src/components/CommandPalette.tsx';
 
 function CrashingChild({ shouldCrash }: { shouldCrash: boolean }) {
   if (shouldCrash) {
@@ -106,4 +107,28 @@ describe('React 19 Workbench UI Components (@testing-library/react)', () => {
       fireEvent.click(btn24h);
     }
   });
+
+  it('renders CommandPalette Simulation Mode toggle and triggers onToggleSimulationMode without production side effects', () => {
+    const toggleSpy = vi.fn();
+    const view = render(
+      <CommandPalette
+        open={true}
+        onClose={() => {}}
+        tools={[]}
+        simulationMode={false}
+        onToggleSimulationMode={toggleSpy}
+        onSelectModule={() => {}}
+        onSelectRole={() => {}}
+        onSelectToolServer={() => {}}
+        onEmitWebhook={() => {}}
+      />
+    );
+
+    expect(view.container.textContent).toContain('Simulation Mode (Safe Sandbox Isolation)');
+    const switchBtn = view.getByRole('switch', { name: 'Toggle Simulation Mode' });
+    expect(switchBtn.getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(switchBtn);
+    expect(toggleSpy).toHaveBeenCalledWith(true);
+  });
 });
+

@@ -7,7 +7,12 @@ import {
   verifyApprovalToken
 } from './cryptoSecurity.ts';
 import { getSqliteAuditLogs, getSqliteDatabaseSummary } from './sqliteEngine.ts';
-import { getConnectorStatusSummary, verifyLiveExternalConnectors } from './liveConnectors.ts';
+import {
+  getConnectorStatusSummary,
+  isSimulationModeActive,
+  setSimulationModeActive,
+  verifyLiveExternalConnectors
+} from './liveConnectors.ts';
 import {
   enqueueDlqEntry,
   exportSqliteSnapshotJson,
@@ -22,10 +27,46 @@ import { getOpenApi31Specification } from './mcpProtocolSpec.ts';
 import { PlaybookFeedbackSchema, RBACRoleSchema } from './validationSchemas.ts';
 import { recordPlaybookFeedback } from './memoryRanker.ts';
 import { createSlackWorkspaceRouter } from './slackWorkspaceEngine.ts';
+import { broadcastSseEvent } from './observabilityEngine.ts';
+import { SimulationDataService } from './simulationDataService.ts';
 
 export function createSecurityAndGovernanceRouter(): Router {
   const router = Router();
   router.use(createSlackWorkspaceRouter());
+
+  // Simulation Mode Toggle (Mock External MCP Connectors + Populate SQL_TABLES, JIRA_TICKETS, SLACK_THREADS)
+  router.get('/api/system/simulation', (_req, res) => {
+    res.json({
+      simulationMode: isSimulationModeActive(),
+      simulationDataset: SimulationDataService.getDatasetSummary(),
+      connectors: getConnectorStatusSummary()
+    });
+  });
+
+  router.post('/api/system/simulation', (req, res) => {
+    const nextState =
+      typeof req.body?.enabled === 'boolean' ? req.body.enabled : !isSimulationModeActive();
+    const active = setSimulationModeActive(nextState);
+    const dataset = active
+      ? SimulationDataService.populateSimulationData()
+      : SimulationDataService.getDatasetSummary();
+    broadcastSseEvent('simulation.toggled', { simulationMode: active, seeded: dataset.seeded });
+    res.json({
+      simulationMode: active,
+      simulationDataset: dataset,
+      modeDescription: active
+        ? 'SIMULATION_MOCK_ACTIVE (All external Slack, Jira, and GitHub connectors isolated to deterministic sandbox data)'
+        : 'PRODUCTION_DUAL_MODE (Live external REST connectors active where credentials exist)',
+      connectors: getConnectorStatusSummary()
+    });
+  });
+
+  // High-Concurrency Multi-User Burst Load Test Endpoint
+  router.post('/api/system/load-test', async (_req, res) => {
+    const report = await SimulationDataService.runConcurrentLoadTest();
+    broadcastSseEvent('simulation.toggled', { simulationMode: true, loadTestCompleted: true });
+    res.json(report);
+  });
 
   // OpenAPI 3.1.0 Specification
   router.get('/api/openapi.json', (_req, res) => {
@@ -36,6 +77,7 @@ export function createSecurityAndGovernanceRouter(): Router {
   router.get('/api/security/connectors/verify', async (_req, res) => {
     const verification = await verifyLiveExternalConnectors();
     res.json({
+      simulationMode: isSimulationModeActive(),
       connectors: getConnectorStatusSummary(),
       liveVerification: verification
     });
