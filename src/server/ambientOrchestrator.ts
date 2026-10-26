@@ -30,21 +30,9 @@ export interface AmbientEventRecord {
   receivedAt: string;
   precomputeLatencyMs: number;
   perceivedUserWaitMs: number;
-  matchedPlaybook: {
-    id: string;
-    title: string;
-    cosineSimilarity: number;
-    stepReductionPct: number;
-  } | null;
+  matchedPlaybook: { id: string; title: string; cosineSimilarity: number; stepReductionPct: number } | null;
   injectedSystemPrompt: string;
-  autonomousReadOnlyTrace: {
-    step: number;
-    serverId: string;
-    toolName: string;
-    args: Record<string, any>;
-    latencyMs: number;
-    findingSummary: string;
-  }[];
+  autonomousReadOnlyTrace: { step: number; serverId: string; toolName: string; args: Record<string, any>; latencyMs: number; findingSummary: string }[];
   rootCauseSynthesis: string;
   approvalToken: string;
   approvalState: 'STAGED_1CLICK_READY' | 'APPROVED_AND_EXECUTED' | 'EDITED_AND_EXECUTED';
@@ -59,8 +47,7 @@ export const AMBIENT_EVENTS: AmbientEventRecord[] = [
     source: 'slack.incident.webhook',
     channelOrTicket: '#inc-prod-alerts · OPS-4821',
     service: 'checkout-ledger-svc',
-    incomingPayloadSummary:
-      '[FIRING: P0] checkout-ledger-svc HTTP 5xx error rate is 14.8% in us-east-1; PgBouncer pool saturation at 98% after canary dep-9042.',
+    incomingPayloadSummary: '[FIRING: P0] checkout-ledger-svc HTTP 5xx error rate is 14.8% in us-east-1; PgBouncer pool saturation at 98% after canary dep-9042.',
     receivedAt: '2026-10-25T15:22:01Z',
     precomputeLatencyMs: 1640,
     perceivedUserWaitMs: 0,
@@ -77,53 +64,12 @@ EXECUTION MODE: AMBIENT_BACKGROUND_PRECOMPUTE (Zero synchronous chat questions a
 - Inspect GitHub PR #1842 diff for unbounded SELECT ... FOR UPDATE locks.
 - Stage 1-Click Approval Block for canary rollback + Jira mitigation.`,
     autonomousReadOnlyTrace: [
-      {
-        step: 1,
-        serverId: 'sql-ops-mcp',
-        toolName: 'sql_execute_readonly_query',
-        args: {
-          query:
-            "SELECT deploy_id, service, git_sha, pr_number, canary_weight_pct, status FROM deployments WHERE service = 'checkout-ledger-svc'",
-          row_limit: 5
-        },
-        latencyMs: 18,
-        findingSummary:
-          'Identified active canary dep-9042 (git_sha=a8f31c9, PR #1842) serving 25% traffic.'
-      },
-      {
-        step: 2,
-        serverId: 'github-mcp',
-        toolName: 'github_get_pr_diff',
-        args: { pr_number: 1842 },
-        latencyMs: 24,
-        findingSummary:
-          'PR #1842 replaced bounded LIMIT 250 query with unbounded SELECT ... FOR UPDATE in LedgerRepository.ts.'
-      },
-      {
-        step: 3,
-        serverId: 'infra-mcp',
-        toolName: 'infra_fetch_pod_logs',
-        args: { service: 'checkout-ledger-svc' },
-        latencyMs: 15,
-        findingSummary:
-          'Confirmed LockWaitTimeout on relation ledger_entries (git_sha=a8f31c9) starving PgBouncer pool.'
-      },
-      {
-        step: 4,
-        serverId: 'slack-mcp',
-        toolName: 'slack_post_approval_block',
-        args: {
-          thread_ts: '1761406210.004200',
-          event_id: 'evt-ambient-901',
-          summary_markdown:
-            'Pre-computed RCA: Canary dep-9042 (PR #1842) introduced unbounded FOR UPDATE locks.'
-        },
-        latencyMs: 12,
-        findingSummary: 'Posted silent 1-Click Approve/Edit block into #inc-prod-alerts thread.'
-      }
+      { step: 1, serverId: 'sql-ops-mcp', toolName: 'sql_execute_readonly_query', args: { query: "SELECT deploy_id, service, git_sha, pr_number, canary_weight_pct, status FROM deployments WHERE service = 'checkout-ledger-svc'", row_limit: 5 }, latencyMs: 18, findingSummary: 'Identified active canary dep-9042 (git_sha=a8f31c9, PR #1842) serving 25% traffic.' },
+      { step: 2, serverId: 'github-mcp', toolName: 'github_get_pr_diff', args: { pr_number: 1842 }, latencyMs: 24, findingSummary: 'PR #1842 replaced bounded LIMIT 250 query with unbounded SELECT ... FOR UPDATE in LedgerRepository.ts.' },
+      { step: 3, serverId: 'infra-mcp', toolName: 'infra_fetch_pod_logs', args: { service: 'checkout-ledger-svc' }, latencyMs: 15, findingSummary: 'Confirmed LockWaitTimeout on relation ledger_entries (git_sha=a8f31c9) starving PgBouncer pool.' },
+      { step: 4, serverId: 'slack-mcp', toolName: 'slack_post_approval_block', args: { thread_ts: '1761406210.004200', event_id: 'evt-ambient-901', summary_markdown: 'Pre-computed RCA: Canary dep-9042 (PR #1842) introduced unbounded FOR UPDATE locks.' }, latencyMs: 12, findingSummary: 'Posted silent 1-Click Approve/Edit block into #inc-prod-alerts thread.' }
     ],
-    rootCauseSynthesis:
-      'Canary deployment dep-9042 (commit a8f31c9, PR #1842 by @mchen) replaced the bounded batch query in LedgerRepository.ts with an unbounded SELECT ... FOR UPDATE without SKIP LOCKED, exhausting 98% of PgBouncer connections and causing a 14.8% HTTP 5xx spike.',
+    rootCauseSynthesis: 'Canary deployment dep-9042 (commit a8f31c9, PR #1842 by @mchen) replaced the bounded batch query in LedgerRepository.ts with an unbounded SELECT ... FOR UPDATE without SKIP LOCKED, exhausting 98% of PgBouncer connections and causing a 14.8% HTTP 5xx spike.',
     approvalToken: 'appr_sig_9042_ledger_rb',
     approvalState: 'STAGED_1CLICK_READY',
     stagedMutations: [
@@ -133,10 +79,7 @@ EXECUTION MODE: AMBIENT_BACKGROUND_PRECOMPUTE (Zero synchronous chat questions a
         toolName: 'infra_trigger_canary_rollback',
         description: 'Drain 25% canary traffic from dep-9042 and restore 100% stable routing',
         requiredRole: 'sre_admin',
-        args: {
-          deploy_id: 'dep-9042',
-          reason: 'Rollback PR #1842 (a8f31c9) due to unbounded FOR UPDATE PgBouncer pool exhaustion'
-        },
+        args: { deploy_id: 'dep-9042', reason: 'Rollback PR #1842 (a8f31c9) due to unbounded FOR UPDATE PgBouncer pool exhaustion' },
         status: 'STAGED_FOR_1CLICK'
       },
       {
@@ -154,11 +97,7 @@ EXECUTION MODE: AMBIENT_BACKGROUND_PRECOMPUTE (Zero synchronous chat questions a
         toolName: 'slack_broadcast_resolution',
         description: 'Broadcast verified canary rollback confirmation to #inc-prod-alerts',
         requiredRole: 'support_tier2',
-        args: {
-          channel_name: '#inc-prod-alerts',
-          resolution_message:
-            'Rolled back canary dep-9042 (PR #1842). PgBouncer pool saturation cleared and HTTP 5xx rate recovered to 0.18%.'
-        },
+        args: { channel_name: '#inc-prod-alerts', resolution_message: 'Rolled back canary dep-9042 (PR #1842). PgBouncer pool saturation cleared and HTTP 5xx rate recovered to 0.18%.' },
         status: 'STAGED_FOR_1CLICK'
       }
     ]
@@ -168,8 +107,7 @@ EXECUTION MODE: AMBIENT_BACKGROUND_PRECOMPUTE (Zero synchronous chat questions a
     source: 'jira.issue.created',
     channelOrTicket: 'OPS-4819 · #tier2-customer-escalations',
     service: 'webhook-dispatcher-v2',
-    incomingPayloadSummary:
-      'Jira OPS-4819 created: Vanguard BioLabs (eu-central-1) experiencing intermittent webhook delivery drops with ETIMEDOUT during TLS handshakes.',
+    incomingPayloadSummary: 'Jira OPS-4819 created: Vanguard BioLabs (eu-central-1) experiencing intermittent webhook delivery drops with ETIMEDOUT during TLS handshakes.',
     receivedAt: '2026-10-25T14:50:02Z',
     precomputeLatencyMs: 1420,
     perceivedUserWaitMs: 0,
@@ -190,8 +128,7 @@ EXECUTION MODE: AMBIENT_BACKGROUND_PRECOMPUTE.
         toolName: 'github_blame_file_range',
         args: { file_path: 'src/http/WebhookClient.ts' },
         latencyMs: 19,
-        findingSummary:
-          'Commit c4190ab (PR #1835 by @arivera) reduced tlsHandshakeTimeoutMs from 2500ms to 400ms.'
+        findingSummary: 'Commit c4190ab (PR #1835 by @arivera) reduced tlsHandshakeTimeoutMs from 2500ms to 400ms.'
       },
       {
         step: 2,
@@ -199,12 +136,10 @@ EXECUTION MODE: AMBIENT_BACKGROUND_PRECOMPUTE.
         toolName: 'docs_get_runbook_by_service',
         args: { service: 'webhook-dispatcher-v2' },
         latencyMs: 11,
-        findingSummary:
-          'Runbook RUNBOOK-WEBHOOK-04 specifies 1500ms minimum safe cross-region TLS handshake threshold.'
+        findingSummary: 'Runbook RUNBOOK-WEBHOOK-04 specifies 1500ms minimum safe cross-region TLS handshake threshold.'
       }
     ],
-    rootCauseSynthesis:
-      'Commit c4190ab (PR #1835) tightened tlsHandshakeTimeoutMs from 2500ms to 400ms in WebhookClient.ts, violating the 1500ms cross-Atlantic minimum required for eu-central-1 enterprise endpoints.',
+    rootCauseSynthesis: 'Commit c4190ab (PR #1835) tightened tlsHandshakeTimeoutMs from 2500ms to 400ms in WebhookClient.ts, violating the 1500ms cross-Atlantic minimum required for eu-central-1 enterprise endpoints.',
     approvalToken: 'appr_sig_4819_webhook_tls',
     approvalState: 'STAGED_1CLICK_READY',
     stagedMutations: [
@@ -214,11 +149,7 @@ EXECUTION MODE: AMBIENT_BACKGROUND_PRECOMPUTE.
         toolName: 'github_post_pr_review_comment',
         description: 'Annotate PR #1835 with cross-region TLS handshake regression analysis',
         requiredRole: 'eng_lead',
-        args: {
-          pr_number: 1835,
-          comment_body:
-            'Automated RCA (OPS-4819): Lowering `tlsHandshakeTimeoutMs` to 400ms breaks `eu-central-1` TLS handshakes (minimum runbook threshold: 1500ms).'
-        },
+        args: { pr_number: 1835, comment_body: 'Automated RCA (OPS-4819): Lowering `tlsHandshakeTimeoutMs` to 400ms breaks `eu-central-1` TLS handshakes (minimum runbook threshold: 1500ms).' },
         status: 'STAGED_FOR_1CLICK'
       },
       {
@@ -227,10 +158,7 @@ EXECUTION MODE: AMBIENT_BACKGROUND_PRECOMPUTE.
         toolName: 'jira_append_root_cause_field',
         description: 'Write verified commit SHA c4190ab and PR #1835 into OPS-4819 RCA notes',
         requiredRole: 'eng_lead',
-        args: {
-          ticket_key: 'OPS-4819',
-          root_cause_notes: 'Regression in PR #1835 (commit c4190ab): tlsHandshakeTimeoutMs reduced to 400ms.'
-        },
+        args: { ticket_key: 'OPS-4819', root_cause_notes: 'Regression in PR #1835 (commit c4190ab): tlsHandshakeTimeoutMs reduced to 400ms.' },
         status: 'STAGED_FOR_1CLICK'
       }
     ]
@@ -245,21 +173,14 @@ export async function ingestAmbientWebhookEvent(params: {
 }): Promise<AmbientEventRecord> {
   const start = Date.now();
   const eventId = `evt-ambient-${Date.now().toString().slice(-4)}`;
-  const playbookSearch = await searchPlaybooksBySemanticSimilarity(
-    `${params.service} ${params.payloadSummary}`,
-    2
-  );
+  const playbookSearch = await searchPlaybooksBySemanticSimilarity(`${params.service} ${params.payloadSummary}`, 2);
   const bestMatch = playbookSearch.matches[0];
   const trace: AmbientEventRecord['autonomousReadOnlyTrace'] = [];
 
   if (params.service === 'checkout-ledger-svc') {
     const t1 = executeMCPToolCall({
       toolName: 'sql_execute_readonly_query',
-      args: {
-        query:
-          "SELECT deploy_id, service, git_sha, pr_number, canary_weight_pct, status FROM deployments WHERE service = 'checkout-ledger-svc'",
-        row_limit: 5
-      },
+      args: { query: "SELECT deploy_id, service, git_sha, pr_number, canary_weight_pct, status FROM deployments WHERE service = 'checkout-ledger-svc'", row_limit: 5 },
       callerRole: 'readonly_analyst'
     });
     trace.push({
@@ -271,26 +192,17 @@ export async function ingestAmbientWebhookEvent(params: {
       findingSummary: 'Read-replica query returned active canary dep-9042 (git_sha=a8f31c9, PR #1842).'
     });
 
-    const t2 = executeMCPToolCall({
-      toolName: 'github_get_pr_diff',
-      args: { pr_number: 1842 },
-      callerRole: 'readonly_analyst'
-    });
+    const t2 = executeMCPToolCall({ toolName: 'github_get_pr_diff', args: { pr_number: 1842 }, callerRole: 'readonly_analyst' });
     trace.push({
       step: 2,
       serverId: 'github-mcp',
       toolName: 'github_get_pr_diff',
       args: { pr_number: 1842 },
       latencyMs: t2.wireFrame.latencyMs,
-      findingSummary:
-        'Diff inspection on PR #1842 detected unbounded SELECT ... FOR UPDATE lock in LedgerRepository.ts.'
+      findingSummary: 'Diff inspection on PR #1842 detected unbounded SELECT ... FOR UPDATE lock in LedgerRepository.ts.'
     });
   } else {
-    const t1 = executeMCPToolCall({
-      toolName: 'github_blame_file_range',
-      args: { file_path: 'src/http/WebhookClient.ts' },
-      callerRole: 'readonly_analyst'
-    });
+    const t1 = executeMCPToolCall({ toolName: 'github_blame_file_range', args: { file_path: 'src/http/WebhookClient.ts' }, callerRole: 'readonly_analyst' });
     trace.push({
       step: 1,
       serverId: 'github-mcp',
@@ -323,10 +235,12 @@ export async function ingestAmbientWebhookEvent(params: {
   const approvalToken = signApprovalToken({
     eventId,
     toolName: params.service === 'checkout-ledger-svc' ? 'infra_trigger_canary_rollback' : 'github_post_pr_review_comment',
-    args: params.service === 'checkout-ledger-svc'
-      ? { deploy_id: 'dep-9042', reason: `Ambient 1-Click Rollback for ${eventId}: PgBouncer lock contention in PR #1842` }
-      : { pr_number: 1835, comment_body: `MonoPulse Ambient RCA (${eventId}): 400ms TLS timeout breaks cross-region EU handshakes.` }
+    args:
+      params.service === 'checkout-ledger-svc'
+        ? { deploy_id: 'dep-9042', reason: `Ambient 1-Click Rollback for ${eventId}: PgBouncer lock contention in PR #1842` }
+        : { pr_number: 1835, comment_body: `MonoPulse Ambient RCA (${eventId}): 400ms TLS timeout breaks cross-region EU handshakes.` }
   });
+
   const stagedMutations: StagedMutationAction[] =
     params.service === 'checkout-ledger-svc'
       ? [
@@ -336,10 +250,7 @@ export async function ingestAmbientWebhookEvent(params: {
             toolName: 'infra_trigger_canary_rollback',
             description: 'Roll back canary deployment dep-9042 and restore 100% stable traffic',
             requiredRole: 'sre_admin',
-            args: {
-              deploy_id: 'dep-9042',
-              reason: `Ambient 1-Click Rollback for ${eventId}: PgBouncer lock contention in PR #1842`
-            },
+            args: { deploy_id: 'dep-9042', reason: `Ambient 1-Click Rollback for ${eventId}: PgBouncer lock contention in PR #1842` },
             status: 'STAGED_FOR_1CLICK'
           },
           {
@@ -357,10 +268,7 @@ export async function ingestAmbientWebhookEvent(params: {
             toolName: 'slack_broadcast_resolution',
             description: 'Post verified mitigation summary to #inc-prod-alerts',
             requiredRole: 'support_tier2',
-            args: {
-              channel_name: '#inc-prod-alerts',
-              resolution_message: `Executed 1-Click Rollback on dep-9042 (${eventId}).`
-            },
+            args: { channel_name: '#inc-prod-alerts', resolution_message: `Executed 1-Click Rollback on dep-9042 (${eventId}).` },
             status: 'STAGED_FOR_1CLICK'
           }
         ]
@@ -371,10 +279,7 @@ export async function ingestAmbientWebhookEvent(params: {
             toolName: 'github_post_pr_review_comment',
             description: 'Post automated regression review comment on PR #1835',
             requiredRole: 'eng_lead',
-            args: {
-              pr_number: 1835,
-              comment_body: `MonoPulse Ambient RCA (${eventId}): 400ms TLS timeout breaks cross-region EU handshakes.`
-            },
+            args: { pr_number: 1835, comment_body: `MonoPulse Ambient RCA (${eventId}): 400ms TLS timeout breaks cross-region EU handshakes.` },
             status: 'STAGED_FOR_1CLICK'
           }
         ];
@@ -399,12 +304,7 @@ export async function ingestAmbientWebhookEvent(params: {
     precomputeLatencyMs: Math.max(420, Date.now() - start),
     perceivedUserWaitMs: 0,
     matchedPlaybook: bestMatch
-      ? {
-          id: bestMatch.playbook.id,
-          title: bestMatch.playbook.title,
-          cosineSimilarity: bestMatch.cosineSimilarity,
-          stepReductionPct: bestMatch.playbook.stepReductionPct
-        }
+      ? { id: bestMatch.playbook.id, title: bestMatch.playbook.title, cosineSimilarity: bestMatch.cosineSimilarity, stepReductionPct: bestMatch.playbook.stepReductionPct }
       : null,
     injectedSystemPrompt: playbookSearch.constructedSystemPrompt,
     autonomousReadOnlyTrace: trace,
@@ -418,12 +318,7 @@ export async function ingestAmbientWebhookEvent(params: {
   REDIS_TIER1_STORE.unshift({
     key: `monopulse:approval_staging:${eventId}`,
     namespace: 'approval_staging',
-    value: {
-      event_id: eventId,
-      approval_token: approvalToken,
-      staged_mutations: stagedMutations.map((m) => m.toolName),
-      playbook_used: record.matchedPlaybook?.id || 'NONE'
-    },
+    value: { event_id: eventId, approval_token: approvalToken, staged_mutations: stagedMutations.map((m) => m.toolName), playbook_used: record.matchedPlaybook?.id || 'NONE' },
     ttlSeconds: 1800,
     createdAt: new Date().toISOString(),
     lastAccessedAt: new Date().toISOString()
@@ -442,9 +337,7 @@ export function executeStagedApprovalBlock(params: {
   results: { toolName: string; status: string; httpCode: number; detail: any }[];
 } {
   const event = AMBIENT_EVENTS.find((e) => e.eventId === params.eventId);
-  if (!event) {
-    throw new Error(`Ambient event '${params.eventId}' not found.`);
-  }
+  if (!event) throw new Error(`Ambient event '${params.eventId}' not found.`);
 
   let wasEdited = false;
   if (params.editedMutations && params.editedMutations.length > 0) {
@@ -462,13 +355,7 @@ export function executeStagedApprovalBlock(params: {
 
   for (const mut of event.stagedMutations) {
     const mutToken = signApprovalToken({ eventId: event.eventId, toolName: mut.toolName, args: mut.args });
-    const rpcRes = executeMCPToolCall({
-      toolName: mut.toolName,
-      args: mut.args,
-      callerRole: params.callerRole,
-      approvalToken: mutToken
-    });
-
+    const rpcRes = executeMCPToolCall({ toolName: mut.toolName, args: mut.args, callerRole: params.callerRole, approvalToken: mutToken });
     if (rpcRes.status === 'SUCCESS') {
       mut.status = 'EXECUTED';
       mut.executionResult = rpcRes.result;
@@ -477,7 +364,6 @@ export function executeStagedApprovalBlock(params: {
       mut.executionResult = rpcRes.error;
       allSucceeded = false;
     }
-
     results.push({ toolName: mut.toolName, status: rpcRes.status, httpCode: rpcRes.httpCode, detail: rpcRes.result || rpcRes.error });
   }
 

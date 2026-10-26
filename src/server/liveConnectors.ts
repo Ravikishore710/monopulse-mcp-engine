@@ -243,3 +243,105 @@ export function normalizeIncomingWebhookPayload(body: Record<string, any>): {
 
   return { isSlackChallenge: false, normalized: null };
 }
+
+export async function verifyLiveExternalConnectors(): Promise<{
+  github: { configured: boolean; reachable: boolean; repo?: string; statusCode?: number; detail?: string };
+  jira: { configured: boolean; reachable: boolean; baseUrl?: string; user?: string; statusCode?: number; detail?: string };
+  slack: { configured: boolean; mode: string };
+}> {
+  const ghToken = process.env.GITHUB_TOKEN;
+  const ghRepo = process.env.GITHUB_REPO || 'Ravikishore710/monopulse-mcp-engine';
+  let githubStatus: { configured: boolean; reachable: boolean; repo?: string; statusCode?: number; detail?: string } = {
+    configured: Boolean(ghToken),
+    reachable: false,
+    repo: ghRepo
+  };
+
+  if (ghToken) {
+    try {
+      const resp = await fetch(`https://api.github.com/repos/${ghRepo}`, {
+        headers: {
+          Authorization: `Bearer ${ghToken}`,
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'MonoPulse-MCP-Engine/1.3'
+        }
+      });
+      if (resp.ok) {
+        const data = (await resp.json()) as Record<string, any>;
+        recordConnectorSuccess('github-mcp');
+        githubStatus = {
+          configured: true,
+          reachable: true,
+          repo: data.full_name || ghRepo,
+          statusCode: resp.status,
+          detail: `Verified repo ${data.full_name || ghRepo} (default_branch=${data.default_branch || 'main'})`
+        };
+      } else {
+        githubStatus = {
+          configured: true,
+          reachable: false,
+          repo: ghRepo,
+          statusCode: resp.status,
+          detail: `GitHub API returned HTTP ${resp.status} (using deterministic sandbox fallback)`
+        };
+      }
+    } catch (e: unknown) {
+      githubStatus.detail = e instanceof Error ? e.message : 'GitHub network error';
+    }
+  }
+
+  const jiraToken = process.env.JIRA_API_TOKEN;
+  const jiraEmail = process.env.JIRA_USER_EMAIL;
+  const jiraBase = (process.env.JIRA_BASE_URL || '').replace(/\/$/, '');
+  let jiraStatus: { configured: boolean; reachable: boolean; baseUrl?: string; user?: string; statusCode?: number; detail?: string } = {
+    configured: Boolean(jiraToken && jiraEmail && jiraBase),
+    reachable: false,
+    baseUrl: jiraBase,
+    user: jiraEmail
+  };
+
+  if (jiraToken && jiraEmail && jiraBase) {
+    try {
+      const basic = Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
+      const resp = await fetch(`${jiraBase}/rest/api/3/myself`, {
+        headers: {
+          Authorization: `Basic ${basic}`,
+          Accept: 'application/json'
+        }
+      });
+      if (resp.ok) {
+        const me = (await resp.json()) as Record<string, any>;
+        recordConnectorSuccess('jira-mcp');
+        jiraStatus = {
+          configured: true,
+          reachable: true,
+          baseUrl: jiraBase,
+          user: me.emailAddress || jiraEmail,
+          statusCode: resp.status,
+          detail: `Authenticated as ${me.displayName || jiraEmail} (${me.accountId || 'verified'})`
+        };
+      } else {
+        jiraStatus = {
+          configured: true,
+          reachable: false,
+          baseUrl: jiraBase,
+          user: jiraEmail,
+          statusCode: resp.status,
+          detail: `Jira REST API returned HTTP ${resp.status}`
+        };
+      }
+    } catch (e: unknown) {
+      jiraStatus.detail = e instanceof Error ? e.message : 'Jira network error';
+    }
+  }
+
+  return {
+    github: githubStatus,
+    jira: jiraStatus,
+    slack: {
+      configured: Boolean(process.env.SLACK_BOT_TOKEN),
+      mode: process.env.SLACK_BOT_TOKEN ? 'LIVE_REST_API' : 'DETERMINISTIC_FALLBACK'
+    }
+  };
+}
+

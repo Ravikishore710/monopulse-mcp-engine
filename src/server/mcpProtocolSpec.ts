@@ -31,15 +31,13 @@ export const MCP_RESOURCES: MCPResourceDefinition[] = [
   {
     uri: 'monopulse://schema/sqlite-tables',
     name: 'SQLite Operational Database Schema',
-    description:
-      'Normalized relational schema for deployments, service_incidents, customer_orgs, and mcp_audit_log',
+    description: 'Normalized relational schema for deployments, service_incidents, customer_orgs, and mcp_audit_log',
     mimeType: 'application/json'
   },
   {
     uri: 'monopulse://runbooks/checkout-ledger-svc',
     name: 'Checkout Ledger Service Canary Runbook',
-    description:
-      'Standard operating procedures for PgBouncer lock exhaustion and canary rollback',
+    description: 'Standard operating procedures for PgBouncer lock exhaustion and canary rollback',
     mimeType: 'text/markdown'
   },
   {
@@ -76,8 +74,7 @@ export const MCP_PROMPTS: MCPPromptDefinition[] = [
   },
   {
     name: 'canary-rollback-safety-check',
-    description:
-      'Generates pre-execution safety checks for a 1-Click Canary Rollback approval block',
+    description: 'Generates pre-execution safety checks for a 1-Click Canary Rollback approval block',
     arguments: [
       { name: 'deploy_id', description: 'Target canary deployment ID', required: true },
       { name: 'error_rate_pct', description: 'Observed 5xx error percentage', required: false }
@@ -86,27 +83,16 @@ export const MCP_PROMPTS: MCPPromptDefinition[] = [
 ];
 
 export function handleMcpPing(id: string | number = 'ping-1') {
-  return {
-    jsonrpc: '2.0' as const,
-    id,
-    result: { ok: true }
-  };
+  return { jsonrpc: '2.0' as const, id, result: { ok: true } };
 }
 
 export function handleMcpLoggingSetLevel(level: string, id: string | number = 'log-1') {
   const validLevels = ['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency'];
   currentMcpLogLevel = validLevels.includes(level) ? level : 'info';
-  return {
-    jsonrpc: '2.0' as const,
-    id,
-    result: { level: currentMcpLogLevel }
-  };
+  return { jsonrpc: '2.0' as const, id, result: { level: currentMcpLogLevel } };
 }
 
-export function handleMcpCompletionComplete(
-  argumentValue: string,
-  id: string | number = 'comp-1'
-) {
+export function handleMcpCompletionComplete(argumentValue: string, id: string | number = 'comp-1') {
   const prefix = (argumentValue || '').toLowerCase();
   const candidates = [
     ...MCP_RESOURCES.map((r) => r.uri),
@@ -168,23 +154,11 @@ export function getToolsListWithAnnotations() {
 }
 
 export function handleMcpResourcesList(id: string | number = 'res-list') {
-  return {
-    jsonrpc: '2.0' as const,
-    id,
-    result: {
-      resources: MCP_RESOURCES
-    }
-  };
+  return { jsonrpc: '2.0' as const, id, result: { resources: MCP_RESOURCES } };
 }
 
 export function handleMcpResourceTemplatesList(id: string | number = 'res-tpl-list') {
-  return {
-    jsonrpc: '2.0' as const,
-    id,
-    result: {
-      resourceTemplates: MCP_RESOURCE_TEMPLATES
-    }
-  };
+  return { jsonrpc: '2.0' as const, id, result: { resourceTemplates: MCP_RESOURCE_TEMPLATES } };
 }
 
 export function handleMcpResourcesRead(uri: string, id: string | number = 'res-read') {
@@ -219,35 +193,18 @@ export function handleMcpResourcesRead(uri: string, id: string | number = 'res-r
       return {
         jsonrpc: '2.0' as const,
         id,
-        result: {
-          contents: [
-            {
-              uri,
-              mimeType: 'application/json',
-              text: JSON.stringify(tbl, null, 2)
-            }
-          ]
-        }
+        result: { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(tbl, null, 2) }] }
       };
     }
   }
 
   if (uri.startsWith('monopulse://runbooks/')) {
     const serviceSlug = uri.replace('monopulse://runbooks/', '').trim();
-    const doc =
-      INTERNAL_DOCS.find((d) => d.service === serviceSlug) || INTERNAL_DOCS[0];
+    const doc = INTERNAL_DOCS.find((d) => d.service === serviceSlug) || INTERNAL_DOCS[0];
     return {
       jsonrpc: '2.0' as const,
       id,
-      result: {
-        contents: [
-          {
-            uri,
-            mimeType: 'text/markdown',
-            text: doc.markdown_body
-          }
-        ]
-      }
+      result: { contents: [{ uri, mimeType: 'text/markdown', text: doc.markdown_body }] }
     };
   }
 
@@ -257,34 +214,17 @@ export function handleMcpResourcesRead(uri: string, id: string | number = 'res-r
       id,
       result: {
         contents: [
-          {
-            uri,
-            mimeType: 'application/json',
-            text: JSON.stringify(SQL_TABLES.db_replication_status.rows, null, 2)
-          }
+          { uri, mimeType: 'application/json', text: JSON.stringify(SQL_TABLES.db_replication_status.rows, null, 2) }
         ]
       }
     };
   }
 
-  return {
-    jsonrpc: '2.0' as const,
-    id,
-    error: {
-      code: -32602,
-      message: `MCP Resource URI '${uri}' not found.`
-    }
-  };
+  return { jsonrpc: '2.0' as const, id, error: { code: -32602, message: `MCP Resource URI '${uri}' not found.` } };
 }
 
 export function handleMcpPromptsList(id: string | number = 'prompt-list') {
-  return {
-    jsonrpc: '2.0' as const,
-    id,
-    result: {
-      prompts: MCP_PROMPTS
-    }
-  };
+  return { jsonrpc: '2.0' as const, id, result: { prompts: MCP_PROMPTS } };
 }
 
 export function handleMcpPromptsGet(
@@ -294,14 +234,7 @@ export function handleMcpPromptsGet(
 ) {
   const prompt = MCP_PROMPTS.find((p) => p.name === name);
   if (!prompt) {
-    return {
-      jsonrpc: '2.0' as const,
-      id,
-      error: {
-        code: -32602,
-        message: `MCP Prompt '${name}' not found.`
-      }
-    };
+    return { jsonrpc: '2.0' as const, id, error: { code: -32602, message: `MCP Prompt '${name}' not found.` } };
   }
 
   const service = args.service || 'checkout-ledger-svc';
@@ -330,8 +263,7 @@ export function getOpenApi31Specification(): Record<string, any> {
     info: {
       title: 'MonoPulse MCP & Ambient AI Control Plane API',
       version: '1.3.0',
-      description:
-        'JSON-RPC 2.0 Model Context Protocol (2024-11-05) Gateway, Durable Event Orchestrator, and Cryptographic Audit Ledger',
+      description: 'JSON-RPC 2.0 Model Context Protocol (2024-11-05) Gateway, Durable Event Orchestrator, and Cryptographic Audit Ledger',
       license: { name: 'MIT', url: 'https://opensource.org/licenses/MIT' }
     },
     paths: {
@@ -363,11 +295,10 @@ export function sanitizeAndTruncateMcpPayload<T>(payload: T, maxBytes = 16384): 
     serialized = serialized.replace(regex, '[REDACTED_SECRET]');
   }
   if (Buffer.byteLength(serialized, 'utf8') > maxBytes) {
-    const truncatedStr = serialized.slice(0, maxBytes);
     return {
       _truncated: true,
       maxBytesAllowed: maxBytes,
-      preview: truncatedStr
+      preview: serialized.slice(0, maxBytes)
     } as unknown as T;
   }
   try {
@@ -407,11 +338,7 @@ export function executeSingleMcpRpcPayload(
   if (parsed.method === 'prompts/list') return { httpCode: 200, body: handleMcpPromptsList(rpcId) };
   if (parsed.method === 'prompts/get') {
     const name = parsed.params?.name || 'incident-rca-synthesis';
-    const promptRes = handleMcpPromptsGet(
-      name,
-      (parsed.params?.arguments || {}) as Record<string, string>,
-      rpcId
-    );
+    const promptRes = handleMcpPromptsGet(name, (parsed.params?.arguments || {}) as Record<string, string>, rpcId);
     return { httpCode: 'error' in promptRes ? 404 : 200, body: promptRes };
   }
   if (parsed.method === 'tools/list') {

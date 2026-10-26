@@ -3,33 +3,32 @@ import { MCPToolDefinition, RBACRole } from './mcpTypes.ts';
 const ALL_ROLES: RBACRole[] = ['sre_admin', 'eng_lead', 'support_tier2', 'readonly_analyst'];
 const WRITE_ROLES: RBACRole[] = ['sre_admin', 'eng_lead', 'support_tier2'];
 const LEAD_ROLES: RBACRole[] = ['sre_admin', 'eng_lead'];
-const SQL_TABLE_ENUM = [
-  'deployments',
-  'service_incidents',
-  'customer_orgs',
-  'feature_flags',
-  'db_replication_status'
-];
+const ANALYST_ROLES: RBACRole[] = ['sre_admin', 'eng_lead', 'readonly_analyst'];
+const SQL_TABLE_ENUM = ['deployments', 'service_incidents', 'customer_orgs', 'feature_flags', 'db_replication_status'];
 const SERVICE_ENUM = ['checkout-ledger-svc', 'webhook-dispatcher-v2', 'auth-token-gateway'];
+
+const strictSchema = (properties: Record<string, any>, required: string[]) => ({
+  type: 'object' as const,
+  properties,
+  required,
+  additionalProperties: false
+});
 
 export const MCP_TOOLS: MCPToolDefinition[] = [
   // 1. sql-ops-mcp (5 tools)
   {
     name: 'sql_execute_readonly_query',
     serverId: 'sql-ops-mcp',
-    description:
-      'Executes a deterministic SELECT query against the production read-replica. Rejects any INSERT, UPDATE, DELETE, DROP, ALTER, or TRUNCATE statements.',
+    description: 'Executes a deterministic SELECT query against the production read-replica. Rejects any INSERT, UPDATE, DELETE, DROP, ALTER, or TRUNCATE statements.',
     isMutation: false,
     allowedRoles: ALL_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
+    inputSchema: strictSchema(
+      {
         query: { type: 'string', description: 'Read-only SQL SELECT statement' },
         row_limit: { type: 'integer', description: 'Max rows (1-250)', minimum: 1, maximum: 250 }
       },
-      required: ['query'],
-      additionalProperties: false
-    }
+      ['query']
+    )
   },
   {
     name: 'sql_inspect_table_schema',
@@ -37,29 +36,18 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'Returns column names, SQL data types, nullability, and descriptions for a production table.',
     isMutation: false,
     allowedRoles: ALL_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        table_name: { type: 'string', description: 'Target table name', enum: SQL_TABLE_ENUM }
-      },
-      required: ['table_name'],
-      additionalProperties: false
-    }
+    inputSchema: strictSchema(
+      { table_name: { type: 'string', description: 'Target table name', enum: SQL_TABLE_ENUM } },
+      ['table_name']
+    )
   },
   {
     name: 'sql_explain_query_plan',
     serverId: 'sql-ops-mcp',
     description: 'Runs EXPLAIN on a candidate SQL query to detect sequential scans or lock contention.',
     isMutation: false,
-    allowedRoles: ['sre_admin', 'eng_lead', 'readonly_analyst'],
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'SQL query to analyze' }
-      },
-      required: ['query'],
-      additionalProperties: false
-    }
+    allowedRoles: ANALYST_ROLES,
+    inputSchema: strictSchema({ query: { type: 'string', description: 'SQL query to analyze' } }, ['query'])
   },
   {
     name: 'sql_sample_recent_rows',
@@ -67,15 +55,13 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'Fetches a bounded snapshot of recent rows from a specified table.',
     isMutation: false,
     allowedRoles: ALL_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
+    inputSchema: strictSchema(
+      {
         table_name: { type: 'string', description: 'Table name to sample', enum: SQL_TABLE_ENUM },
         limit: { type: 'integer', description: 'Max sample rows', minimum: 1, maximum: 50 }
       },
-      required: ['table_name'],
-      additionalProperties: false
-    }
+      ['table_name']
+    )
   },
   {
     name: 'sql_check_replication_lag',
@@ -83,14 +69,10 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'Inspects PostgreSQL WAL replication lag and active lock counts across replica nodes.',
     isMutation: false,
     allowedRoles: ALL_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        cluster_name: { type: 'string', description: 'Cluster identifier (e.g. ledger-prod-cluster)' }
-      },
-      required: ['cluster_name'],
-      additionalProperties: false
-    }
+    inputSchema: strictSchema(
+      { cluster_name: { type: 'string', description: 'Cluster identifier (e.g. ledger-prod-cluster)' } },
+      ['cluster_name']
+    )
   },
 
   // 2. github-mcp (5 tools)
@@ -100,14 +82,7 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'Retrieves the unified diff, author, branch, and touched files for a GitHub PR.',
     isMutation: false,
     allowedRoles: ALL_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        pr_number: { type: 'integer', description: 'GitHub Pull Request number' }
-      },
-      required: ['pr_number'],
-      additionalProperties: false
-    }
+    inputSchema: strictSchema({ pr_number: { type: 'integer', description: 'GitHub Pull Request number' } }, ['pr_number'])
   },
   {
     name: 'github_list_pr_checks',
@@ -115,29 +90,15 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'Lists CI/CD check suite statuses and failure log excerpts for a Pull Request.',
     isMutation: false,
     allowedRoles: ALL_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        pr_number: { type: 'integer', description: 'GitHub Pull Request number' }
-      },
-      required: ['pr_number'],
-      additionalProperties: false
-    }
+    inputSchema: strictSchema({ pr_number: { type: 'integer', description: 'GitHub Pull Request number' } }, ['pr_number'])
   },
   {
     name: 'github_blame_file_range',
     serverId: 'github-mcp',
     description: 'Returns commit blame metadata for a specific source file path.',
     isMutation: false,
-    allowedRoles: ['sre_admin', 'eng_lead', 'readonly_analyst'],
-    inputSchema: {
-      type: 'object',
-      properties: {
-        file_path: { type: 'string', description: 'Repository relative file path' }
-      },
-      required: ['file_path'],
-      additionalProperties: false
-    }
+    allowedRoles: ANALYST_ROLES,
+    inputSchema: strictSchema({ file_path: { type: 'string', description: 'Repository relative file path' } }, ['file_path'])
   },
   {
     name: 'github_search_commits',
@@ -145,14 +106,7 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'Searches recent repository commits by service keyword or SHA prefix.',
     isMutation: false,
     allowedRoles: ALL_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Commit search query or SHA' }
-      },
-      required: ['query'],
-      additionalProperties: false
-    }
+    inputSchema: strictSchema({ query: { type: 'string', description: 'Commit search query or SHA' } }, ['query'])
   },
   {
     name: 'github_post_pr_review_comment',
@@ -160,15 +114,13 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'MUTATION: Posts an automated root-cause annotation onto a GitHub Pull Request.',
     isMutation: true,
     allowedRoles: LEAD_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
+    inputSchema: strictSchema(
+      {
         pr_number: { type: 'integer', description: 'Target Pull Request number' },
         comment_body: { type: 'string', description: 'Markdown comment body' }
       },
-      required: ['pr_number', 'comment_body'],
-      additionalProperties: false
-    }
+      ['pr_number', 'comment_body']
+    )
   },
 
   // 3. slack-mcp (5 tools)
@@ -178,14 +130,7 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'Fetches all chronological messages and responder roles from a Slack thread.',
     isMutation: false,
     allowedRoles: ALL_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        thread_ts: { type: 'string', description: 'Slack thread timestamp ID' }
-      },
-      required: ['thread_ts'],
-      additionalProperties: false
-    }
+    inputSchema: strictSchema({ thread_ts: { type: 'string', description: 'Slack thread timestamp ID' } }, ['thread_ts'])
   },
   {
     name: 'slack_summarize_incident_thread',
@@ -193,14 +138,7 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'Extracts timeline signals, mentioned PR numbers, and affected tenants from a thread.',
     isMutation: false,
     allowedRoles: ALL_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        thread_ts: { type: 'string', description: 'Slack thread timestamp ID' }
-      },
-      required: ['thread_ts'],
-      additionalProperties: false
-    }
+    inputSchema: strictSchema({ thread_ts: { type: 'string', description: 'Slack thread timestamp ID' } }, ['thread_ts'])
   },
   {
     name: 'slack_search_channel_history',
@@ -208,14 +146,7 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'Searches across Slack incident and escalation channels for matching error signatures.',
     isMutation: false,
     allowedRoles: ALL_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        keyword: { type: 'string', description: 'Search keyword' }
-      },
-      required: ['keyword'],
-      additionalProperties: false
-    }
+    inputSchema: strictSchema({ keyword: { type: 'string', description: 'Search keyword' } }, ['keyword'])
   },
   {
     name: 'slack_post_approval_block',
@@ -223,16 +154,14 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'Stages an Ambient 1-Click Approve/Edit interactive summary block in Slack.',
     isMutation: false,
     allowedRoles: WRITE_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
+    inputSchema: strictSchema(
+      {
         thread_ts: { type: 'string', description: 'Target Slack thread timestamp' },
         event_id: { type: 'string', description: 'MonoPulse ambient event ID' },
         summary_markdown: { type: 'string', description: 'Pre-computed root cause summary' }
       },
-      required: ['thread_ts', 'event_id', 'summary_markdown'],
-      additionalProperties: false
-    }
+      ['thread_ts', 'event_id', 'summary_markdown']
+    )
   },
   {
     name: 'slack_broadcast_resolution',
@@ -240,15 +169,13 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'MUTATION: Broadcasts an official incident mitigation confirmation message to Slack.',
     isMutation: true,
     allowedRoles: WRITE_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
+    inputSchema: strictSchema(
+      {
         channel_name: { type: 'string', description: 'Target channel (e.g. #inc-prod-alerts)' },
         resolution_message: { type: 'string', description: 'Verified resolution details' }
       },
-      required: ['channel_name', 'resolution_message'],
-      additionalProperties: false
-    }
+      ['channel_name', 'resolution_message']
+    )
   },
 
   // 4. jira-mcp (5 tools)
@@ -258,14 +185,7 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'Fetches full Jira issue metadata, SLA countdown, priority, and description.',
     isMutation: false,
     allowedRoles: ALL_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        ticket_key: { type: 'string', description: 'Jira issue key (e.g. OPS-4821)' }
-      },
-      required: ['ticket_key'],
-      additionalProperties: false
-    }
+    inputSchema: strictSchema({ ticket_key: { type: 'string', description: 'Jira issue key (e.g. OPS-4821)' } }, ['ticket_key'])
   },
   {
     name: 'jira_search_similar_issues',
@@ -273,14 +193,7 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'Searches Jira history for tickets affecting the same microservice.',
     isMutation: false,
     allowedRoles: ALL_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        service: { type: 'string', description: 'Microservice name' }
-      },
-      required: ['service'],
-      additionalProperties: false
-    }
+    inputSchema: strictSchema({ service: { type: 'string', description: 'Microservice name' } }, ['service'])
   },
   {
     name: 'jira_transition_ticket_status',
@@ -288,19 +201,13 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'MUTATION: Transitions a Jira ticket status (Open -> Investigating -> Mitigated -> Resolved).',
     isMutation: true,
     allowedRoles: WRITE_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
+    inputSchema: strictSchema(
+      {
         ticket_key: { type: 'string', description: 'Jira ticket key' },
-        new_status: {
-          type: 'string',
-          description: 'Target workflow state',
-          enum: ['Open', 'Investigating', 'Mitigated', 'Resolved']
-        }
+        new_status: { type: 'string', description: 'Target workflow state', enum: ['Open', 'Investigating', 'Mitigated', 'Resolved'] }
       },
-      required: ['ticket_key', 'new_status'],
-      additionalProperties: false
-    }
+      ['ticket_key', 'new_status']
+    )
   },
   {
     name: 'jira_assign_oncall_owner',
@@ -308,15 +215,13 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'MUTATION: Updates the Jira ticket assignee to the responsible engineer.',
     isMutation: true,
     allowedRoles: WRITE_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
+    inputSchema: strictSchema(
+      {
         ticket_key: { type: 'string', description: 'Jira ticket key' },
         assignee: { type: 'string', description: 'Username of engineer' }
       },
-      required: ['ticket_key', 'assignee'],
-      additionalProperties: false
-    }
+      ['ticket_key', 'assignee']
+    )
   },
   {
     name: 'jira_append_root_cause_field',
@@ -324,15 +229,13 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'MUTATION: Writes verified root-cause forensics into the Jira ticket RCA field.',
     isMutation: true,
     allowedRoles: LEAD_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
+    inputSchema: strictSchema(
+      {
         ticket_key: { type: 'string', description: 'Jira ticket key' },
         root_cause_notes: { type: 'string', description: 'Structured RCA summary' }
       },
-      required: ['ticket_key', 'root_cause_notes'],
-      additionalProperties: false
-    }
+      ['ticket_key', 'root_cause_notes']
+    )
   },
 
   // 5. docs-mcp (4 tools)
@@ -342,14 +245,7 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'Searches internal engineering runbooks and postmortems by symptom or keyword.',
     isMutation: false,
     allowedRoles: ALL_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Symptom or keyword query' }
-      },
-      required: ['query'],
-      additionalProperties: false
-    }
+    inputSchema: strictSchema({ query: { type: 'string', description: 'Symptom or keyword query' } }, ['query'])
   },
   {
     name: 'docs_get_runbook_by_service',
@@ -357,14 +253,7 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'Retrieves the canonical operational runbook for a given microservice.',
     isMutation: false,
     allowedRoles: ALL_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        service: { type: 'string', description: 'Microservice identifier' }
-      },
-      required: ['service'],
-      additionalProperties: false
-    }
+    inputSchema: strictSchema({ service: { type: 'string', description: 'Microservice identifier' } }, ['service'])
   },
   {
     name: 'docs_list_postmortems',
@@ -372,14 +261,7 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'Lists historical incident postmortems to cross-reference failure modes.',
     isMutation: false,
     allowedRoles: ALL_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        service: { type: 'string', description: 'Service filter' }
-      },
-      required: ['service'],
-      additionalProperties: false
-    }
+    inputSchema: strictSchema({ service: { type: 'string', description: 'Service filter' } }, ['service'])
   },
   {
     name: 'docs_propose_runbook_patch',
@@ -387,15 +269,13 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'MUTATION: Appends a newly discovered remediation guardrail patch to an internal runbook.',
     isMutation: true,
     allowedRoles: LEAD_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
+    inputSchema: strictSchema(
+      {
         doc_id: { type: 'string', description: 'Document ID (e.g. RUNBOOK-LEDGER-01)' },
         patch_markdown: { type: 'string', description: 'Markdown section to append' }
       },
-      required: ['doc_id', 'patch_markdown'],
-      additionalProperties: false
-    }
+      ['doc_id', 'patch_markdown']
+    )
   },
 
   // 6. infra-mcp (4 tools)
@@ -405,14 +285,7 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'Returns real-time HTTP 5xx error rate, p99 latency, and active canary ID.',
     isMutation: false,
     allowedRoles: ALL_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        service: { type: 'string', description: 'Service name', enum: SERVICE_ENUM }
-      },
-      required: ['service'],
-      additionalProperties: false
-    }
+    inputSchema: strictSchema({ service: { type: 'string', description: 'Service name', enum: SERVICE_ENUM } }, ['service'])
   },
   {
     name: 'infra_fetch_pod_logs',
@@ -420,14 +293,7 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'Fetches recent structured error and warning log lines from Kubernetes pods.',
     isMutation: false,
     allowedRoles: ALL_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        service: { type: 'string', description: 'Service name', enum: SERVICE_ENUM }
-      },
-      required: ['service'],
-      additionalProperties: false
-    }
+    inputSchema: strictSchema({ service: { type: 'string', description: 'Service name', enum: SERVICE_ENUM } }, ['service'])
   },
   {
     name: 'infra_check_feature_flags',
@@ -435,14 +301,7 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'Lists active feature flags and rollout percentages targeting a microservice.',
     isMutation: false,
     allowedRoles: ALL_ROLES,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        service: { type: 'string', description: 'Microservice name' }
-      },
-      required: ['service'],
-      additionalProperties: false
-    }
+    inputSchema: strictSchema({ service: { type: 'string', description: 'Microservice name' } }, ['service'])
   },
   {
     name: 'infra_trigger_canary_rollback',
@@ -450,14 +309,12 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     description: 'MUTATION: Drains traffic from an unhealthy canary deployment and restores 100% stable routing.',
     isMutation: true,
     allowedRoles: ['sre_admin'],
-    inputSchema: {
-      type: 'object',
-      properties: {
+    inputSchema: strictSchema(
+      {
         deploy_id: { type: 'string', description: 'Canary deployment ID (e.g. dep-9042)' },
         reason: { type: 'string', description: 'Audit reason for canary rollback' }
       },
-      required: ['deploy_id', 'reason'],
-      additionalProperties: false
-    }
+      ['deploy_id', 'reason']
+    )
   }
 ];

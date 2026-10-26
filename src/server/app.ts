@@ -1,77 +1,19 @@
 import crypto from 'node:crypto';
 import express from 'express';
 import { ZodError } from 'zod';
-import {
-  MCP_SERVERS,
-  MCP_TOOLS,
-  WIRE_LOG
-} from './mcpRegistry.ts';
-import {
-  REDIS_TIER1_STORE,
-  PGVECTOR_PLAYBOOKS,
-  KAGGLE_GPU_JOBS,
-  searchPlaybooksBySemanticSimilarity,
-  distillTrajectoryViaKaggleGPU
-} from './memoryEngine.ts';
-import {
-  AMBIENT_EVENTS,
-  ingestAmbientWebhookEvent,
-  executeStagedApprovalBlock
-} from './ambientOrchestrator.ts';
-import {
-  SQL_TABLES,
-  GITHUB_PRS,
-  SLACK_THREADS,
-  JIRA_TICKETS,
-  INTERNAL_DOCS,
-  POD_TELEMETRY
-} from './sandboxData.ts';
-import {
-  WebhookIngestSchema,
-  EventApprovalSchema,
-  MemorySearchSchema,
-  KaggleDistillSchema,
-  CliExecSchema
-} from './validationSchemas.ts';
+import { MCP_SERVERS, MCP_TOOLS, WIRE_LOG } from './mcpRegistry.ts';
+import { REDIS_TIER1_STORE, PGVECTOR_PLAYBOOKS, KAGGLE_GPU_JOBS, searchPlaybooksBySemanticSimilarity, distillTrajectoryViaKaggleGPU } from './memoryEngine.ts';
+import { AMBIENT_EVENTS, ingestAmbientWebhookEvent, executeStagedApprovalBlock } from './ambientOrchestrator.ts';
+import { SQL_TABLES, GITHUB_PRS, SLACK_THREADS, JIRA_TICKETS, INTERNAL_DOCS, POD_TELEMETRY } from './sandboxData.ts';
+import { WebhookIngestSchema, EventApprovalSchema, MemorySearchSchema, KaggleDistillSchema, CliExecSchema } from './validationSchemas.ts';
 import { createRequestLogContext } from './logger.ts';
-import {
-  computeWebhookSignature,
-  createRateLimitMiddleware,
-  resolveVerifiedCallerRole,
-  securityHeadersMiddleware,
-  verifyWebhookReplayWindow,
-  verifyWebhookSignature
-} from './cryptoSecurity.ts';
-import {
-  acquireEventApprovalLock,
-  computeAndRecordWebhookFingerprint,
-  getSqliteDatabaseSummary,
-  releaseEventApprovalLock
-} from './sqliteEngine.ts';
-import {
-  getConnectorStatusSummary,
-  normalizeIncomingWebhookPayload
-} from './liveConnectors.ts';
+import { computeWebhookSignature, createRateLimitMiddleware, resolveVerifiedCallerRole, securityHeadersMiddleware, verifyWebhookReplayWindow, verifyWebhookSignature } from './cryptoSecurity.ts';
+import { acquireEventApprovalLock, computeAndRecordWebhookFingerprint, getSqliteDatabaseSummary, releaseEventApprovalLock } from './sqliteEngine.ts';
+import { getConnectorStatusSummary, normalizeIncomingWebhookPayload } from './liveConnectors.ts';
 import { processCliCommand } from './cliProcessor.ts';
-import {
-  MCP_PROMPTS,
-  MCP_PROTOCOL_VERSION,
-  MCP_RESOURCES,
-  executeSingleMcpRpcPayload
-} from './mcpProtocolSpec.ts';
-import {
-  broadcastSseEvent,
-  incrementWebhookMetric,
-  registerSseClient,
-  renderPrometheusMetrics,
-  traceContextMiddleware
-} from './observabilityEngine.ts';
-import {
-  listDlqEntries,
-  persistAmbientEventToSqlite,
-  saveStepCheckpoint,
-  verifyAuditHashChain
-} from './durableLedger.ts';
+import { MCP_PROMPTS, MCP_PROTOCOL_VERSION, MCP_RESOURCES, executeSingleMcpRpcPayload } from './mcpProtocolSpec.ts';
+import { broadcastSseEvent, incrementWebhookMetric, registerSseClient, renderPrometheusMetrics, traceContextMiddleware } from './observabilityEngine.ts';
+import { listDlqEntries, persistAmbientEventToSqlite, saveStepCheckpoint, verifyAuditHashChain } from './durableLedger.ts';
 import { createSecurityAndGovernanceRouter } from './securityAndGovernanceRouter.ts';
 
 export { executeSingleMcpRpcPayload };
@@ -103,10 +45,7 @@ export function createMonoPulseApp() {
       mcpResourcesReady: MCP_RESOURCES.length,
       mcpPromptsReady: MCP_PROMPTS.length,
       sqliteEngine: sqliteSummary.engine,
-      memoryTiersReady: {
-        redisTier1Keys: REDIS_TIER1_STORE.length,
-        pgvectorPlaybooks: PGVECTOR_PLAYBOOKS.length
-      },
+      memoryTiersReady: { redisTier1Keys: REDIS_TIER1_STORE.length, pgvectorPlaybooks: PGVECTOR_PLAYBOOKS.length },
       timestamp: new Date().toISOString()
     });
   });
@@ -116,17 +55,13 @@ export function createMonoPulseApp() {
     res.send(renderPrometheusMetrics());
   });
 
-  app.get('/api/events/stream', (req, res) => {
-    registerSseClient(req, res);
-  });
+  app.get('/api/events/stream', (req, res) => registerSseClient(req, res));
 
   app.get('/api/system/state', (req, res) => {
     const reqLogger = createRequestLogContext('GET /api/system/state');
     const stateDigest = crypto
       .createHash('sha1')
-      .update(
-        `${WIRE_LOG.length}:${AMBIENT_EVENTS.length}:${AMBIENT_EVENTS[0]?.approvalState || ''}:${PGVECTOR_PLAYBOOKS.length}`
-      )
+      .update(`${WIRE_LOG.length}:${AMBIENT_EVENTS.length}:${AMBIENT_EVENTS[0]?.approvalState || ''}:${PGVECTOR_PLAYBOOKS.length}`)
       .digest('hex')
       .slice(0, 12);
     const etag = `W/"mp-${stateDigest}"`;
@@ -182,13 +117,10 @@ export function createMonoPulseApp() {
     try {
       const authHeader = req.header('Authorization');
       if (Array.isArray(req.body)) {
-        const batchResults = req.body.map(
-          (item) => executeSingleMcpRpcPayload(item, authHeader).body
-        );
+        const batchResults = req.body.map((item) => executeSingleMcpRpcPayload(item, authHeader).body);
         res.status(200).json(batchResults);
         return;
       }
-
       const outcome = executeSingleMcpRpcPayload(req.body, authHeader);
       res.status(outcome.httpCode).json(outcome.body);
     } catch (err: unknown) {
@@ -206,7 +138,6 @@ export function createMonoPulseApp() {
   app.post('/api/webhooks/ingest', async (req, res) => {
     const reqLogger = createRequestLogContext('POST /api/webhooks/ingest');
     try {
-      // Handle Slack Events API URL Verification Challenge
       const vendorNormalized = normalizeIncomingWebhookPayload(req.body);
       if (vendorNormalized.isSlackChallenge) {
         res.status(200).json({ challenge: vendorNormalized.challenge });
@@ -221,15 +152,9 @@ export function createMonoPulseApp() {
 
       const providedSignature = req.header('X-MonoPulse-Signature-256');
       if (providedSignature) {
-        const isSignatureValid = verifyWebhookSignature(
-          req.body as Record<string, unknown>,
-          providedSignature
-        );
+        const isSignatureValid = verifyWebhookSignature(req.body as Record<string, unknown>, providedSignature);
         if (!isSignatureValid) {
-          reqLogger.warn(
-            { providedSignature },
-            'Rejected webhook due to invalid HMAC-SHA256 signature'
-          );
+          reqLogger.warn({ providedSignature }, 'Rejected webhook due to invalid HMAC-SHA256 signature');
           res.status(401).json({
             status: 'WEBHOOK_SIGNATURE_INVALID',
             error: 'HMAC-SHA256 signature verification failed for X-MonoPulse-Signature-256'
@@ -238,11 +163,7 @@ export function createMonoPulseApp() {
         }
       }
 
-      const knownServices = [
-        'checkout-ledger-svc',
-        'webhook-dispatcher-v2',
-        'auth-token-gateway'
-      ] as const;
+      const knownServices = ['checkout-ledger-svc', 'webhook-dispatcher-v2', 'auth-token-gateway'] as const;
       const candidateBody = vendorNormalized.normalized
         ? {
             source: vendorNormalized.normalized.source,
@@ -260,10 +181,7 @@ export function createMonoPulseApp() {
       const computedSignature = computeWebhookSignature(parsed);
       const event = await ingestAmbientWebhookEvent(parsed);
 
-      persistAmbientEventToSqlite({
-        ...event,
-        status: event.approvalState
-      });
+      persistAmbientEventToSqlite({ ...event, status: event.approvalState });
       for (const step of event.autonomousReadOnlyTrace) {
         saveStepCheckpoint(event.eventId, step.toolName, {
           findingSummary: step.findingSummary,
@@ -278,10 +196,7 @@ export function createMonoPulseApp() {
         deduplicated: dedup.deduplicated
       });
 
-      reqLogger.info(
-        { eventId: event.eventId, service: event.service, fingerprint: dedup.fingerprint },
-        'Ingested and pre-computed ambient webhook event'
-      );
+      reqLogger.info({ eventId: event.eventId, service: event.service, fingerprint: dedup.fingerprint }, 'Ingested and pre-computed ambient webhook event');
       res.json({
         status: 'PRECOMPUTED_AND_STAGED',
         vendorFormat: vendorNormalized.normalized?.vendorFormat || 'monopulse.canonical.v1',
@@ -334,18 +249,13 @@ export function createMonoPulseApp() {
       const outcome = executeStagedApprovalBlock({
         eventId: req.params.eventId,
         callerRole: roleCheck.role,
-        editedMutations: parsed.editedMutations as
-          | { id: string; args: Record<string, any> }[]
-          | undefined
+        editedMutations: parsed.editedMutations as { id: string; args: Record<string, any> }[] | undefined
       });
 
       if (!outcome.success) {
         releaseEventApprovalLock(req.params.eventId);
       } else {
-        persistAmbientEventToSqlite({
-          ...outcome.event,
-          status: outcome.event.approvalState
-        });
+        persistAmbientEventToSqlite({ ...outcome.event, status: outcome.event.approvalState });
       }
 
       const postRemediationVerification = outcome.success
@@ -364,10 +274,7 @@ export function createMonoPulseApp() {
         callerRole: roleCheck.role,
         success: outcome.success
       });
-      reqLogger.info(
-        { eventId: req.params.eventId, callerRole: roleCheck.role, success: outcome.success },
-        'Processed 1-Click Approval Block'
-      );
+      reqLogger.info({ eventId: req.params.eventId, callerRole: roleCheck.role, success: outcome.success }, 'Processed 1-Click Approval Block');
       res.json({ ...outcome, postRemediationVerification });
     } catch (err: unknown) {
       if (err instanceof ZodError) {
@@ -384,10 +291,7 @@ export function createMonoPulseApp() {
     try {
       const parsed = MemorySearchSchema.parse(req.body);
       const result = await searchPlaybooksBySemanticSimilarity(parsed.query, parsed.topK);
-      reqLogger.info(
-        { topPlaybook: result.matches[0]?.playbook.id, model: result.embeddingModelUsed },
-        'Executed pgvector semantic similarity search'
-      );
+      reqLogger.info({ topPlaybook: result.matches[0]?.playbook.id, model: result.embeddingModelUsed }, 'Executed pgvector semantic similarity search');
       res.json(result);
     } catch (err: unknown) {
       if (err instanceof ZodError) {
@@ -404,20 +308,10 @@ export function createMonoPulseApp() {
     const reqLogger = createRequestLogContext('POST /api/kaggle/distill');
     try {
       const parsed = KaggleDistillSchema.parse(req.body || {});
-      const sourceEvent =
-        AMBIENT_EVENTS.find((e) => e.eventId === parsed.eventId) || AMBIENT_EVENTS[0];
-
+      const sourceEvent = AMBIENT_EVENTS.find((e) => e.eventId === parsed.eventId) || AMBIENT_EVENTS[0];
       const executedTools = [
-        ...sourceEvent.autonomousReadOnlyTrace.map((t) => ({
-          toolName: t.toolName,
-          args: t.args,
-          outcomeSummary: t.findingSummary
-        })),
-        ...sourceEvent.stagedMutations.map((m) => ({
-          toolName: m.toolName,
-          args: m.args,
-          outcomeSummary: m.description
-        }))
+        ...sourceEvent.autonomousReadOnlyTrace.map((t) => ({ toolName: t.toolName, args: t.args, outcomeSummary: t.findingSummary })),
+        ...sourceEvent.stagedMutations.map((m) => ({ toolName: m.toolName, args: m.args, outcomeSummary: m.description }))
       ];
 
       const outcome = await distillTrajectoryViaKaggleGPU({
@@ -427,14 +321,8 @@ export function createMonoPulseApp() {
         executedTools
       });
 
-      broadcastSseEvent('playbook.distilled', {
-        jobId: outcome.job.jobId,
-        playbookId: outcome.newPlaybook.id
-      });
-      reqLogger.info(
-        { jobId: outcome.job.jobId, extractedPlaybookId: outcome.newPlaybook.id },
-        'Completed Kaggle GPU trajectory distillation'
-      );
+      broadcastSseEvent('playbook.distilled', { jobId: outcome.job.jobId, playbookId: outcome.newPlaybook.id });
+      reqLogger.info({ jobId: outcome.job.jobId, extractedPlaybookId: outcome.newPlaybook.id }, 'Completed Kaggle GPU trajectory distillation');
       res.json(outcome);
     } catch (err: unknown) {
       if (err instanceof ZodError) {
@@ -450,10 +338,7 @@ export function createMonoPulseApp() {
     const reqLogger = createRequestLogContext('POST /api/cli/exec');
     try {
       const parsed = CliExecSchema.parse(req.body);
-      reqLogger.info(
-        { command: parsed.command, callerRole: parsed.callerRole },
-        'Executing CLI harness command'
-      );
+      reqLogger.info({ command: parsed.command, callerRole: parsed.callerRole }, 'Executing CLI harness command');
       const outcome = await processCliCommand(parsed.command, parsed.callerRole);
       res.json(outcome);
     } catch (err: unknown) {

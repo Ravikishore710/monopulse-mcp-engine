@@ -73,36 +73,9 @@ export const SQL_TABLES: Record<string, SqlTableSchema> = {
       { name: 'deployed_at', type: 'TIMESTAMPTZ', nullable: false, description: 'UTC deployment timestamp' }
     ],
     rows: [
-      {
-        deploy_id: 'dep-9042',
-        service: 'checkout-ledger-svc',
-        git_sha: 'a8f31c9',
-        pr_number: 1842,
-        author: 'mchen',
-        canary_weight_pct: 25,
-        status: 'ACTIVE_CANARY',
-        deployed_at: '2026-10-25T15:18:00Z'
-      },
-      {
-        deploy_id: 'dep-9041',
-        service: 'auth-token-gateway',
-        git_sha: '7d22e10',
-        pr_number: 1839,
-        author: 'kpatel',
-        canary_weight_pct: 100,
-        status: 'PROMOTED',
-        deployed_at: '2026-10-25T12:40:00Z'
-      },
-      {
-        deploy_id: 'dep-9039',
-        service: 'webhook-dispatcher-v2',
-        git_sha: 'c4190ab',
-        pr_number: 1835,
-        author: 'arivera',
-        canary_weight_pct: 100,
-        status: 'PROMOTED',
-        deployed_at: '2026-10-25T09:15:00Z'
-      }
+      { deploy_id: 'dep-9042', service: 'checkout-ledger-svc', git_sha: 'a8f31c9', pr_number: 1842, author: 'mchen', canary_weight_pct: 25, status: 'ACTIVE_CANARY', deployed_at: '2026-10-25T15:18:00Z' },
+      { deploy_id: 'dep-9041', service: 'auth-token-gateway', git_sha: '7d22e10', pr_number: 1839, author: 'kpatel', canary_weight_pct: 100, status: 'PROMOTED', deployed_at: '2026-10-25T12:40:00Z' },
+      { deploy_id: 'dep-9039', service: 'webhook-dispatcher-v2', git_sha: 'c4190ab', pr_number: 1835, author: 'arivera', canary_weight_pct: 100, status: 'PROMOTED', deployed_at: '2026-10-25T09:15:00Z' }
     ]
   },
   service_incidents: {
@@ -117,30 +90,9 @@ export const SQL_TABLES: Record<string, SqlTableSchema> = {
       { name: 'jira_key', type: 'VARCHAR(24)', nullable: false, description: 'Linked Jira incident key' }
     ],
     rows: [
-      {
-        incident_id: 'inc-409',
-        service: 'checkout-ledger-svc',
-        error_rate_pct: 14.8,
-        p99_latency_ms: 4820,
-        db_pool_exhaustion_pct: 98,
-        jira_key: 'OPS-4821'
-      },
-      {
-        incident_id: 'inc-408',
-        service: 'webhook-dispatcher-v2',
-        error_rate_pct: 3.4,
-        p99_latency_ms: 1290,
-        db_pool_exhaustion_pct: 64,
-        jira_key: 'OPS-4819'
-      },
-      {
-        incident_id: 'inc-407',
-        service: 'auth-token-gateway',
-        error_rate_pct: 0.12,
-        p99_latency_ms: 82,
-        db_pool_exhaustion_pct: 31,
-        jira_key: 'OPS-4812'
-      }
+      { incident_id: 'inc-409', service: 'checkout-ledger-svc', error_rate_pct: 14.8, p99_latency_ms: 4820, db_pool_exhaustion_pct: 98, jira_key: 'OPS-4821' },
+      { incident_id: 'inc-408', service: 'webhook-dispatcher-v2', error_rate_pct: 3.4, p99_latency_ms: 1290, db_pool_exhaustion_pct: 64, jira_key: 'OPS-4819' },
+      { incident_id: 'inc-407', service: 'auth-token-gateway', error_rate_pct: 0.12, p99_latency_ms: 82, db_pool_exhaustion_pct: 31, jira_key: 'OPS-4812' }
     ]
   },
   customer_orgs: {
@@ -154,27 +106,9 @@ export const SQL_TABLES: Record<string, SqlTableSchema> = {
       { name: 'failed_tx_last_15m', type: 'INTEGER', nullable: false, description: 'Failed checkout transactions in last 15m' }
     ],
     rows: [
-      {
-        org_id: 'org_acme_global',
-        org_name: 'Acme Global Logistics',
-        sla_tier: 'ENTERPRISE_9999',
-        active_region: 'us-east-1',
-        failed_tx_last_15m: 342
-      },
-      {
-        org_id: 'org_kestrel_fin',
-        org_name: 'Kestrel Financial Systems',
-        sla_tier: 'ENTERPRISE_9999',
-        active_region: 'us-east-1',
-        failed_tx_last_15m: 189
-      },
-      {
-        org_id: 'org_vanguard_med',
-        org_name: 'Vanguard BioLabs',
-        sla_tier: 'GROWTH_999',
-        active_region: 'eu-central-1',
-        failed_tx_last_15m: 12
-      }
+      { org_id: 'org_acme_global', org_name: 'Acme Global Logistics', sla_tier: 'ENTERPRISE_9999', active_region: 'us-east-1', failed_tx_last_15m: 342 },
+      { org_id: 'org_kestrel_fin', org_name: 'Kestrel Financial Systems', sla_tier: 'ENTERPRISE_9999', active_region: 'us-east-1', failed_tx_last_15m: 189 },
+      { org_id: 'org_vanguard_med', org_name: 'Vanguard BioLabs', sla_tier: 'GROWTH_999', active_region: 'eu-central-1', failed_tx_last_15m: 12 }
     ]
   },
   feature_flags: {
@@ -188,27 +122,9 @@ export const SQL_TABLES: Record<string, SqlTableSchema> = {
       { name: 'updated_by', type: 'VARCHAR(64)', nullable: false, description: 'Last modifier' }
     ],
     rows: [
-      {
-        flag_key: 'enable_sync_ledger_reconciliation_v2',
-        service: 'checkout-ledger-svc',
-        enabled: true,
-        rollout_pct: 25,
-        updated_by: 'mchen'
-      },
-      {
-        flag_key: 'strict_webhook_hmac_retry_backoff',
-        service: 'webhook-dispatcher-v2',
-        enabled: true,
-        rollout_pct: 100,
-        updated_by: 'arivera'
-      },
-      {
-        flag_key: 'pgvector_hybrid_reranker',
-        service: 'monopulse-core',
-        enabled: true,
-        rollout_pct: 100,
-        updated_by: 'system'
-      }
+      { flag_key: 'enable_sync_ledger_reconciliation_v2', service: 'checkout-ledger-svc', enabled: true, rollout_pct: 25, updated_by: 'mchen' },
+      { flag_key: 'strict_webhook_hmac_retry_backoff', service: 'webhook-dispatcher-v2', enabled: true, rollout_pct: 100, updated_by: 'arivera' },
+      { flag_key: 'pgvector_hybrid_reranker', service: 'monopulse-core', enabled: true, rollout_pct: 100, updated_by: 'system' }
     ]
   },
   db_replication_status: {
@@ -222,27 +138,9 @@ export const SQL_TABLES: Record<string, SqlTableSchema> = {
       { name: 'state', type: 'VARCHAR(24)', nullable: false, description: 'STREAMING | DEGRADED' }
     ],
     rows: [
-      {
-        replica_node: 'pg-ledger-ro-01.us-east-1',
-        cluster: 'ledger-prod-cluster',
-        replication_lag_ms: 4120,
-        active_locks: 47,
-        state: 'DEGRADED'
-      },
-      {
-        replica_node: 'pg-ledger-ro-02.us-east-1',
-        cluster: 'ledger-prod-cluster',
-        replication_lag_ms: 190,
-        active_locks: 6,
-        state: 'STREAMING'
-      },
-      {
-        replica_node: 'pg-vector-mem-01.us-east-1',
-        cluster: 'monopulse-pgvector-cluster',
-        replication_lag_ms: 14,
-        active_locks: 2,
-        state: 'STREAMING'
-      }
+      { replica_node: 'pg-ledger-ro-01.us-east-1', cluster: 'ledger-prod-cluster', replication_lag_ms: 4120, active_locks: 47, state: 'DEGRADED' },
+      { replica_node: 'pg-ledger-ro-02.us-east-1', cluster: 'ledger-prod-cluster', replication_lag_ms: 190, active_locks: 6, state: 'STREAMING' },
+      { replica_node: 'pg-vector-mem-01.us-east-1', cluster: 'monopulse-pgvector-cluster', replication_lag_ms: 14, active_locks: 2, state: 'STREAMING' }
     ]
   }
 };
@@ -256,11 +154,7 @@ export const GITHUB_PRS: GithubPR[] = [
     branch: 'feat/sync-ledger-lock',
     status: 'merged',
     ci_status: 'failing',
-    changed_files: [
-      'src/repository/LedgerRepository.ts',
-      'src/workers/ReconciliationWorker.ts',
-      'config/pgbouncer-pool.yaml'
-    ],
+    changed_files: ['src/repository/LedgerRepository.ts', 'src/workers/ReconciliationWorker.ts', 'config/pgbouncer-pool.yaml'],
     diff_summary: `@@ -84,7 +84,9 @@ export async function reconcileTenantBatch(tx: PoolClient, orgId: string) {
 -  const rows = await tx.query('SELECT id, amount_cents FROM ledger_entries WHERE org_id = $1 AND settled = false LIMIT 250', [orgId]);
 +  // Acquired explicit row lock without SKIP LOCKED across unbounded batch
@@ -273,12 +167,7 @@ export const GITHUB_PRS: GithubPR[] = [
         duration_s: 142,
         log_excerpt: 'ERROR: remaining connection slots are reserved for non-replication superuser connections (SQLSTATE 53300)'
       },
-      {
-        name: 'unit-tests-node22',
-        status: 'passing',
-        duration_s: 38,
-        log_excerpt: '412 passing (1.8s)'
-      }
+      { name: 'unit-tests-node22', status: 'passing', duration_s: 38, log_excerpt: '412 passing (1.8s)' }
     ],
     comments: [
       {
@@ -301,14 +190,7 @@ export const GITHUB_PRS: GithubPR[] = [
     diff_summary: `@@ -22,4 +22,4 @@ export const DEFAULT_WEBHOOK_CLIENT_OPTS = {
 -  tlsHandshakeTimeoutMs: 2500,
 +  tlsHandshakeTimeoutMs: 400, // Causes premature ETIMEDOUT on cross-region EU endpoints`,
-    checks: [
-      {
-        name: 'integration-suite',
-        status: 'passing',
-        duration_s: 64,
-        log_excerpt: 'All regional mocks passed.'
-      }
-    ],
+    checks: [{ name: 'integration-suite', status: 'passing', duration_s: 64, log_excerpt: 'All regional mocks passed.' }],
     comments: []
   }
 ];
@@ -467,8 +349,6 @@ export const POD_TELEMETRY: Record<string, {
     error_rate_pct: 0.12,
     p99_latency_ms: 82,
     active_canary_id: null,
-    recent_logs: [
-      '2026-10-25T15:24:00.011Z [INFO] [pod/auth-gw-01] JWK rotation check nominal (p99=82ms)'
-    ]
+    recent_logs: ['2026-10-25T15:24:00.011Z [INFO] [pod/auth-gw-01] JWK rotation check nominal (p99=82ms)']
   }
 };

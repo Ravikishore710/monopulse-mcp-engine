@@ -1,19 +1,12 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import {
-  computeReciprocalRankFusion,
-  getPlaybookConfidenceBoost,
-  tokenizeAndStemQuery
-} from './memoryRanker.ts';
+import { computeReciprocalRankFusion, getPlaybookConfidenceBoost, tokenizeAndStemQuery } from './memoryRanker.ts';
 import { persistPlaybookToSqlite } from './durableLedger.ts';
 
 const getGenAI = () => {
   if (process.env.VITEST || process.env.NODE_ENV === 'test') return null;
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') return null;
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
-  });
+  return new GoogleGenAI({ apiKey, httpOptions: { headers: { 'User-Agent': 'aistudio-build' } } });
 };
 
 export interface RedisTier1Entry {
@@ -64,43 +57,15 @@ export interface KaggleDistillationJob {
 export function computeDeterministicEmbedding(text: string, dim = 64): number[] {
   const normalized = text.toLowerCase();
   const domainConcepts = [
-    [
-      'pgbouncer',
-      'pool',
-      'exhaustion',
-      'connection',
-      '53300',
-      'lock',
-      'for update',
-      'ledger',
-      'canary',
-      'rollback',
-      'dep-9042',
-      'ops-4821',
-      '5xx'
-    ],
-    [
-      'webhook',
-      'tls',
-      'handshake',
-      'etimedout',
-      'timeout',
-      '400ms',
-      'eu-central-1',
-      'vanguard',
-      'retry',
-      'ops-4819',
-      'c4190ab',
-      '1835'
-    ],
+    ['pgbouncer', 'pool', 'exhaustion', 'connection', '53300', 'lock', 'for update', 'ledger', 'canary', 'rollback', 'dep-9042', 'ops-4821', '5xx'],
+    ['webhook', 'tls', 'handshake', 'etimedout', 'timeout', '400ms', 'eu-central-1', 'vanguard', 'retry', 'ops-4819', 'c4190ab', '1835'],
     ['replication', 'lag', 'wal', 'replica', 'degraded', 'postgres', 'sql', 'select', 'read-only'],
     ['auth', 'token', 'jwk', 'rotation', 'gateway', 'latency', 'sla']
   ];
 
   const vec = new Array(dim).fill(0);
   for (let i = 0; i < normalized.length; i++) {
-    const code = normalized.charCodeAt(i);
-    vec[i % dim] += ((code % 29) - 14) / 50;
+    vec[i % dim] += ((normalized.charCodeAt(i) % 29) - 14) / 50;
   }
 
   domainConcepts.forEach((keywords, clusterIdx) => {
@@ -125,27 +90,18 @@ export async function embedTextWithGeminiOrFallback(text: string): Promise<{
   const ai = getGenAI();
   if (ai) {
     try {
-      const res = await ai.models.embedContent({
-        model: 'gemini-embedding-2-preview',
-        contents: [text]
-      });
+      const res = await ai.models.embedContent({ model: 'gemini-embedding-2-preview', contents: [text] });
       const values = res.embeddings?.[0]?.values;
       if (values && values.length > 0) {
         const sliced = values.slice(0, 64);
         const norm = Math.sqrt(sliced.reduce((a, b) => a + b * b, 0)) || 1;
-        return {
-          vector: sliced.map((v) => Number((v / norm).toFixed(5))),
-          modelUsed: 'gemini-embedding-2-preview'
-        };
+        return { vector: sliced.map((v) => Number((v / norm).toFixed(5))), modelUsed: 'gemini-embedding-2-preview' };
       }
     } catch {
       // Fallback to deterministic vector
     }
   }
-  return {
-    vector: computeDeterministicEmbedding(text, 64),
-    modelUsed: 'kaggle-gpu-bge-large-en-v1.5'
-  };
+  return { vector: computeDeterministicEmbedding(text, 64), modelUsed: 'kaggle-gpu-bge-large-en-v1.5' };
 }
 
 export function cosineSimilarity(a: number[], b: number[]): number {
@@ -167,12 +123,7 @@ export const REDIS_TIER1_STORE: RedisTier1Entry[] = [
   {
     key: 'monopulse:event_lock:OPS-4821',
     namespace: 'event_lock',
-    value: {
-      event_id: 'evt-ambient-901',
-      status: 'APPROVAL_STAGED',
-      acquired_by: 'ambient-worker-01',
-      idempotency_hash: 'sha256:9f82c10e4b'
-    },
+    value: { event_id: 'evt-ambient-901', status: 'APPROVAL_STAGED', acquired_by: 'ambient-worker-01', idempotency_hash: 'sha256:9f82c10e4b' },
     ttlSeconds: 1800,
     createdAt: '2026-10-25T15:22:02Z',
     lastAccessedAt: '2026-10-25T15:22:05Z'
@@ -183,11 +134,7 @@ export const REDIS_TIER1_STORE: RedisTier1Entry[] = [
     value: {
       approval_token: 'appr_sig_9042_ledger_rb',
       channel: '#inc-prod-alerts',
-      staged_mutations: [
-        'infra_trigger_canary_rollback',
-        'jira_transition_ticket_status',
-        'slack_broadcast_resolution'
-      ],
+      staged_mutations: ['infra_trigger_canary_rollback', 'jira_transition_ticket_status', 'slack_broadcast_resolution'],
       expires_in_min: 30
     },
     ttlSeconds: 1790,
@@ -197,38 +144,23 @@ export const REDIS_TIER1_STORE: RedisTier1Entry[] = [
   {
     key: 'monopulse:precompute_ctx:OPS-4819',
     namespace: 'precompute_ctx',
-    value: {
-      event_id: 'evt-ambient-902',
-      matched_playbook: 'PB-WEBHOOK-TLS-02',
-      cosine_similarity: 0.9412,
-      precomputed_in_ms: 1420
-    },
+    value: { event_id: 'evt-ambient-902', matched_playbook: 'PB-WEBHOOK-TLS-02', cosine_similarity: 0.9412, precomputed_in_ms: 1420 },
     ttlSeconds: 3600,
     createdAt: '2026-10-25T14:50:03Z',
     lastAccessedAt: '2026-10-25T14:50:04Z'
   }
 ];
 
-const pb1Vec = computeDeterministicEmbedding(
-  'PgBouncer connection pool exhaustion 98% HTTP 5xx spike checkout-ledger-svc unbounded SELECT FOR UPDATE lock contention canary rollback dep-9042 OPS-4821',
-  64
-);
-const pb2Vec = computeDeterministicEmbedding(
-  'Cross-region webhook delivery ETIMEDOUT TLS handshake timeout 400ms eu-central-1 webhook-dispatcher-v2 PR 1835 c4190ab OPS-4819',
-  64
-);
-const pb3Vec = computeDeterministicEmbedding(
-  'PostgreSQL read-replica WAL replication lag degraded active locks ledger-prod-cluster query plan sequential scan',
-  64
-);
+const pb1Vec = computeDeterministicEmbedding('PgBouncer connection pool exhaustion 98% HTTP 5xx spike checkout-ledger-svc unbounded SELECT FOR UPDATE lock contention canary rollback dep-9042 OPS-4821', 64);
+const pb2Vec = computeDeterministicEmbedding('Cross-region webhook delivery ETIMEDOUT TLS handshake timeout 400ms eu-central-1 webhook-dispatcher-v2 PR 1835 c4190ab OPS-4819', 64);
+const pb3Vec = computeDeterministicEmbedding('PostgreSQL read-replica WAL replication lag degraded active locks ledger-prod-cluster query plan sequential scan', 64);
 
 export const PGVECTOR_PLAYBOOKS: PgVectorPlaybook[] = [
   {
     id: 'PB-LEDGER-CANARY-01',
     slug: 'pgbouncer-canary-lock-rollback',
     title: 'Playbook: PgBouncer Pool Saturation via Unbounded FOR UPDATE Canary',
-    triggerSignature:
-      'service=checkout-ledger-svc AND (db_pool_exhaustion_pct > 85 OR sqlstate=53300)',
+    triggerSignature: 'service=checkout-ledger-svc AND (db_pool_exhaustion_pct > 85 OR sqlstate=53300)',
     targetServices: ['checkout-ledger-svc'],
     baselineStepsWithoutPlaybook: 8,
     distilledStepsWithPlaybook: 5,
@@ -252,8 +184,7 @@ export const PGVECTOR_PLAYBOOKS: PgVectorPlaybook[] = [
     id: 'PB-WEBHOOK-TLS-02',
     slug: 'cross-region-webhook-tls-timeout',
     title: 'Playbook: Cross-Region Webhook TLS Handshake ETIMEDOUT Regression',
-    triggerSignature:
-      'service=webhook-dispatcher-v2 AND error=ETIMEDOUT AND region IN (eu-central-1, ap-southeast-1)',
+    triggerSignature: 'service=webhook-dispatcher-v2 AND error=ETIMEDOUT AND region IN (eu-central-1, ap-southeast-1)',
     targetServices: ['webhook-dispatcher-v2'],
     baselineStepsWithoutPlaybook: 7,
     distilledStepsWithPlaybook: 4,
@@ -293,8 +224,7 @@ export const PGVECTOR_PLAYBOOKS: PgVectorPlaybook[] = [
 export const KAGGLE_GPU_JOBS: KaggleDistillationJob[] = [
   {
     jobId: 'kaggle-gpu-job-701',
-    kernelSlug:
-      process.env.KAGGLE_GPU_KERNEL_SLUG || 'monopulse-ops/trajectory-playbook-distiller-gpu',
+    kernelSlug: process.env.KAGGLE_GPU_KERNEL_SLUG || 'monopulse-ops/trajectory-playbook-distiller-gpu',
     accelerator: 'NVIDIA_T4_X2',
     mode: process.env.KAGGLE_KEY ? 'LIVE_KAGGLE_MCP_BRIDGE' : 'LOCAL_GPU_FALLBACK_DISTILLER',
     sourceTrajectoryId: 'traj-prod-8810',
@@ -316,9 +246,7 @@ async function ensureBootstrapPlaybooksEmbedded() {
   if (playbooksLiveEmbedded || !getGenAI()) return;
   playbooksLiveEmbedded = true;
   for (const pb of PGVECTOR_PLAYBOOKS) {
-    const { vector, modelUsed } = await embedTextWithGeminiOrFallback(
-      `${pb.title} ${pb.triggerSignature} ${pb.targetServices.join(' ')} ${pb.markdownSkill}`
-    );
+    const { vector, modelUsed } = await embedTextWithGeminiOrFallback(`${pb.title} ${pb.triggerSignature} ${pb.targetServices.join(' ')} ${pb.markdownSkill}`);
     pb.fullVector = vector;
     pb.vectorPreview = vector.slice(0, 8);
     pb.embeddingModel = modelUsed;
@@ -332,23 +260,16 @@ export async function searchPlaybooksBySemanticSimilarity(
   query: string;
   embeddingModelUsed: string;
   queryVectorPreview: number[];
-  matches: {
-    playbook: PgVectorPlaybook;
-    cosineSimilarity: number;
-    injectedIntoPrompt: boolean;
-  }[];
+  matches: { playbook: PgVectorPlaybook; cosineSimilarity: number; injectedIntoPrompt: boolean }[];
   constructedSystemPrompt: string;
 }> {
   await ensureBootstrapPlaybooksEmbedded();
   const { vector: qVec, modelUsed } = await embedTextWithGeminiOrFallback(query);
-
   const stemmedQueryTokens = tokenizeAndStemQuery(query);
 
   const prelim = PGVECTOR_PLAYBOOKS.map((pb) => {
     const denseSim = cosineSimilarity(qVec, pb.fullVector);
-    const corpusSet = new Set(
-      tokenizeAndStemQuery(`${pb.id} ${pb.title} ${pb.triggerSignature} ${pb.targetServices.join(' ')} ${pb.markdownSkill}`)
-    );
+    const corpusSet = new Set(tokenizeAndStemQuery(`${pb.id} ${pb.title} ${pb.triggerSignature} ${pb.targetServices.join(' ')} ${pb.markdownSkill}`));
     const matched = stemmedQueryTokens.filter((tok) => corpusSet.has(tok)).length;
     const bm25Score = stemmedQueryTokens.length > 0 ? matched / stemmedQueryTokens.length : 0;
     return { pb, denseSim, bm25Score };
@@ -364,9 +285,7 @@ export async function searchPlaybooksBySemanticSimilarity(
         byBm25.findIndex((x) => x.pb.id === item.pb.id)
       );
       const fb = getPlaybookConfidenceBoost(item.pb.id);
-      const hybridScore = Number(
-        Math.min(0.9999, Math.max(0.01, item.denseSim + item.bm25Score * 0.14 + rrf + fb)).toFixed(4)
-      );
+      const hybridScore = Number(Math.min(0.9999, Math.max(0.01, item.denseSim + item.bm25Score * 0.14 + rrf + fb)).toFixed(4));
       return { playbook: item.pb, cosineSimilarity: hybridScore, injectedIntoPrompt: hybridScore >= 0.45 };
     })
     .sort((a, b) => b.cosineSimilarity - a.cosineSimilarity);
@@ -384,13 +303,7 @@ ${topMatch.playbook.markdownSkill}
     : '<!-- No Playbook exceeded similarity threshold; use standard MCP diagnostic sequence -->'
 }`;
 
-  return {
-    query,
-    embeddingModelUsed: modelUsed,
-    queryVectorPreview: qVec.slice(0, 8),
-    matches: selected,
-    constructedSystemPrompt
-  };
+  return { query, embeddingModelUsed: modelUsed, queryVectorPreview: qVec.slice(0, 8), matches: selected, constructedSystemPrompt };
 }
 
 export async function distillTrajectoryViaKaggleGPU(params: {
@@ -398,10 +311,7 @@ export async function distillTrajectoryViaKaggleGPU(params: {
   incidentSummary: string;
   service: string;
   executedTools: { toolName: string; args: Record<string, any>; outcomeSummary: string }[];
-}): Promise<{
-  job: KaggleDistillationJob;
-  newPlaybook: PgVectorPlaybook;
-}> {
+}): Promise<{ job: KaggleDistillationJob; newPlaybook: PgVectorPlaybook }> {
   const start = Date.now();
   const ai = getGenAI();
 
@@ -421,11 +331,7 @@ export async function distillTrajectoryViaKaggleGPU(params: {
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              triggerSignature: { type: Type.STRING },
-              markdownSkill: { type: Type.STRING }
-            },
+            properties: { title: { type: Type.STRING }, triggerSignature: { type: Type.STRING }, markdownSkill: { type: Type.STRING } },
             required: ['title', 'triggerSignature', 'markdownSkill']
           }
         }
@@ -441,9 +347,7 @@ export async function distillTrajectoryViaKaggleGPU(params: {
     }
   }
 
-  const { vector, modelUsed } = await embedTextWithGeminiOrFallback(
-    `${distilledTitle} ${params.incidentSummary} ${params.service} ${distilledMarkdown}`
-  );
+  const { vector, modelUsed } = await embedTextWithGeminiOrFallback(`${distilledTitle} ${params.incidentSummary} ${params.service} ${distilledMarkdown}`);
   const rawSteps = Math.max(7, params.executedTools.length + 3);
   const distilledSteps = Math.max(3, Math.round(rawSteps * 0.62));
   const reductionPct = Number((((rawSteps - distilledSteps) / rawSteps) * 100).toFixed(1));
@@ -472,8 +376,7 @@ export async function distillTrajectoryViaKaggleGPU(params: {
 
   const job: KaggleDistillationJob = {
     jobId: `kaggle-gpu-job-${Date.now().toString().slice(-4)}`,
-    kernelSlug:
-      process.env.KAGGLE_GPU_KERNEL_SLUG || 'monopulse-ops/trajectory-playbook-distiller-gpu',
+    kernelSlug: process.env.KAGGLE_GPU_KERNEL_SLUG || 'monopulse-ops/trajectory-playbook-distiller-gpu',
     accelerator: 'NVIDIA_T4_X2',
     mode: process.env.KAGGLE_KEY ? 'LIVE_KAGGLE_MCP_BRIDGE' : 'LOCAL_GPU_FALLBACK_DISTILLER',
     sourceTrajectoryId: params.trajectoryId,

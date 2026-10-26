@@ -17,6 +17,13 @@ const MODULE_TABS: { id: ActiveModule; label: string }[] = [
   { id: 'audit', label: 'SQLite & Crypto Audit' }
 ];
 
+const RBAC_ROLES_META: { role: RBACRole; desc: string }[] = [
+  { role: 'sre_admin', desc: 'Full Read + Canary Rollback + Mutations' },
+  { role: 'eng_lead', desc: 'Read + PR Review & Jira RCA Writes' },
+  { role: 'support_tier2', desc: 'Read + Jira Status & Slack Broadcast' },
+  { role: 'readonly_analyst', desc: 'Strictly Read-Only Tools (0 Mutations)' }
+];
+
 export default function App() {
   const [state, setState] = useState<SystemState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,10 +52,7 @@ export default function App() {
       const res = await fetch('/api/system/state');
       const data: SystemState = await res.json();
       setState(data);
-      if (
-        data.ambientEvents.length > 0 &&
-        !data.ambientEvents.some((e) => e.eventId === selectedEventId)
-      ) {
+      if (data.ambientEvents.length > 0 && !data.ambientEvents.some((e) => e.eventId === selectedEventId)) {
         setSelectedEventId(data.ambientEvents[0].eventId);
       }
     } catch {
@@ -70,12 +74,10 @@ export default function App() {
       window.addEventListener('keydown', onKey);
       if ('EventSource' in window) {
         const es = new EventSource('/api/events/stream');
-        const refresh = () => {
-          fetchSystemState();
-        };
-        es.addEventListener('webhook.ingested', refresh);
-        es.addEventListener('approval.executed', refresh);
-        es.addEventListener('playbook.distilled', refresh);
+        const refresh = () => fetchSystemState();
+        ['webhook.ingested', 'approval.executed', 'playbook.distilled', 'slack.message.posted'].forEach((evt) =>
+          es.addEventListener(evt, refresh)
+        );
         return () => {
           window.removeEventListener('keydown', onKey);
           es.close();
@@ -108,10 +110,7 @@ export default function App() {
         body: JSON.stringify({
           source: params.source,
           service: params.service,
-          channelOrTicket:
-            params.service === 'checkout-ledger-svc'
-              ? '#inc-prod-alerts · OPS-4821'
-              : 'OPS-4819 · #tier2-customer-escalations',
+          channelOrTicket: params.service === 'checkout-ledger-svc' ? '#inc-prod-alerts · OPS-4821' : 'OPS-4819 · #tier2-customer-escalations',
           payloadSummary: params.summary
         })
       });
@@ -133,19 +132,12 @@ export default function App() {
     const res = await fetch(`/api/events/${event.eventId}/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        callerRole,
-        editedMutations: editedList
-      })
+      body: JSON.stringify({ callerRole, editedMutations: editedList })
     });
     const data = await res.json();
     await fetchSystemState();
-
     if (data.success) {
-      return {
-        type: 'success',
-        message: `1-Click Approval executed (${data.results.length} mutations verified under role '${callerRole}').`
-      };
+      return { type: 'success', message: `1-Click Approval executed (${data.results.length} mutations verified under role '${callerRole}').` };
     }
     const failed = data.results?.find((r: any) => r.status !== 'SUCCESS');
     return {
@@ -188,9 +180,23 @@ export default function App() {
     );
   }
 
+  const sidebarModules: { id: ActiveModule; label: string; badge: string | number; Icon: any }[] = [
+    { id: 'ambient', label: '01. Ambient Event Bus', badge: state.ambientEvents.length, Icon: Layers },
+    { id: 'mcp', label: '02. MCP Tool Boundary', badge: '6 / 28', Icon: ShieldAlert },
+    { id: 'memory', label: '03. Memory & Playbooks', badge: state.pgvectorPlaybooks.length, Icon: Database },
+    { id: 'cli', label: '04. Live CLI & Wire Log', badge: state.wireLog.length, Icon: Terminal },
+    { id: 'audit', label: '05. SQLite & Crypto Audit', badge: 'HMAC', Icon: Lock }
+  ];
+
+  const kpiCards = [
+    { label: 'MCP Tool Surface & Boundary', primary: '6 Servers · 28 Tools', primaryColor: 'text-[#F9FAFB]', secondary: '', secondaryColor: '', footer: 'Draft-07 JSON Schema · Granular RBAC Gate' },
+    { label: 'Playbook Extractor Efficiency', primary: `-${state.metrics.avgStepReductionPct}% Steps`, primaryColor: 'text-[#16A34A]', secondary: '8.0 → 5.0 avg', secondaryColor: 'text-[#9CA3AF]', footer: 'pgvector cosine injection + Kaggle GPU distillation' },
+    { label: 'Perceived Incident Triage Latency', primary: '0.4s Ambient', primaryColor: 'text-[#F9FAFB]', secondary: 'vs 46.4s Sync Chat', secondaryColor: 'text-[#D97706]', footer: 'Pre-computed on webhook arrival · 0 clarifying questions' },
+    { label: 'Weekly Active Operator Retention', primary: '84.0% Retained', primaryColor: 'text-[#16A34A]', secondary: 'Up from 28.0%', secondaryColor: 'text-[#DC2626]', footer: 'Eliminated 72% week-one chat abandonment drop-off' }
+  ];
+
   return (
     <div className="min-h-screen bg-[#0B0F17] text-[#F9FAFB] flex flex-col">
-      {/* Strict 3-Zone Top Bar Contract */}
       <header className="flex items-center justify-between gap-8 px-6 py-3.5 border-b border-[#1F2937] bg-[#0B0F17] sticky top-0 z-30">
         <a
           href="#top"
@@ -211,11 +217,8 @@ export default function App() {
               aria-selected={activeModule === tab.id}
               onClick={() => setActiveModule(tab.id)}
               onKeyDown={(e) => {
-                if (e.key === 'ArrowRight') {
-                  setActiveModule(MODULE_TABS[(idx + 1) % MODULE_TABS.length].id);
-                } else if (e.key === 'ArrowLeft') {
-                  setActiveModule(MODULE_TABS[(idx - 1 + MODULE_TABS.length) % MODULE_TABS.length].id);
-                }
+                if (e.key === 'ArrowRight') setActiveModule(MODULE_TABS[(idx + 1) % MODULE_TABS.length].id);
+                else if (e.key === 'ArrowLeft') setActiveModule(MODULE_TABS[(idx - 1 + MODULE_TABS.length) % MODULE_TABS.length].id);
               }}
               className={`hover:text-[#F9FAFB] transition-colors whitespace-nowrap shrink-0 py-1 border-b-2 ${
                 activeModule === tab.id ? 'text-[#F9FAFB] border-[#2563EB]' : 'border-transparent'
@@ -239,8 +242,7 @@ export default function App() {
               handleEmitWebhook({
                 source: 'slack.incident.webhook',
                 service: 'checkout-ledger-svc',
-                summary:
-                  '[FIRING: P0] checkout-ledger-svc 5xx error spike (14.8%) & PgBouncer saturation (98%) after canary dep-9042 rollout.'
+                summary: '[FIRING: P0] checkout-ledger-svc 5xx error spike (14.8%) & PgBouncer saturation (98%) after canary dep-9042 rollout.'
               })
             }
             disabled={ingestingWebhook}
@@ -251,7 +253,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Mobile Navigation Bar (< 768px) */}
       <div className="flex md:hidden items-center gap-2 overflow-x-auto px-4 py-2 border-b border-[#1F2937] bg-[#0E131F]">
         {MODULE_TABS.map((tab) => (
           <button
@@ -288,22 +289,12 @@ export default function App() {
             <div>
               <div className="text-xs font-medium text-[#9CA3AF] mb-2">System Modules</div>
               <div className="space-y-1">
-                {(
-                  [
-                    { id: 'ambient', label: '01. Ambient Event Bus', badge: state.ambientEvents.length, Icon: Layers },
-                    { id: 'mcp', label: '02. MCP Tool Boundary', badge: '6 / 28', Icon: ShieldAlert },
-                    { id: 'memory', label: '03. Memory & Playbooks', badge: state.pgvectorPlaybooks.length, Icon: Database },
-                    { id: 'cli', label: '04. Live CLI & Wire Log', badge: state.wireLog.length, Icon: Terminal },
-                    { id: 'audit', label: '05. SQLite & Crypto Audit', badge: 'HMAC', Icon: Lock }
-                  ] as { id: ActiveModule; label: string; badge: string | number; Icon: any }[]
-                ).map(({ id, label, badge, Icon }) => (
+                {sidebarModules.map(({ id, label, badge, Icon }) => (
                   <button
                     key={id}
                     onClick={() => setActiveModule(id)}
                     className={`w-full flex items-center justify-between px-3 py-2.5 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                      activeModule === id
-                        ? 'bg-[#2563EB] text-white'
-                        : 'text-[#9CA3AF] hover:bg-[#111827] hover:text-[#F9FAFB]'
+                      activeModule === id ? 'bg-[#2563EB] text-white' : 'text-[#9CA3AF] hover:bg-[#111827] hover:text-[#F9FAFB]'
                     }`}
                   >
                     <span className="flex items-center gap-2.5">
@@ -317,28 +308,17 @@ export default function App() {
             </div>
 
             <div className="pt-5 border-t border-[#1F2937]">
-              <div className="text-xs font-medium text-[#9CA3AF] mb-1.5">
-                Active Caller RBAC Token
-              </div>
+              <div className="text-xs font-medium text-[#9CA3AF] mb-1.5">Active Caller RBAC Token</div>
               <p className="text-xs text-[#9CA3AF]/80 mb-3 leading-relaxed">
                 Enforced at the MCP JSON-RPC boundary before any tool handler executes.
               </p>
               <div className="space-y-1.5">
-                {(
-                  [
-                    { role: 'sre_admin', desc: 'Full Read + Canary Rollback + Mutations' },
-                    { role: 'eng_lead', desc: 'Read + PR Review & Jira RCA Writes' },
-                    { role: 'support_tier2', desc: 'Read + Jira Status & Slack Broadcast' },
-                    { role: 'readonly_analyst', desc: 'Strictly Read-Only Tools (0 Mutations)' }
-                  ] as { role: RBACRole; desc: string }[]
-                ).map((item) => (
+                {RBAC_ROLES_META.map((item) => (
                   <button
                     key={item.role}
                     onClick={() => setCallerRole(item.role)}
                     className={`w-full text-left p-2.5 rounded-md border transition-colors cursor-pointer ${
-                      callerRole === item.role
-                        ? 'bg-[#111827] border-[#2563EB] text-[#F9FAFB]'
-                        : 'bg-[#0B0F17] border-[#1F2937] text-[#9CA3AF] hover:border-slate-700'
+                      callerRole === item.role ? 'bg-[#111827] border-[#2563EB] text-[#F9FAFB]' : 'bg-[#0B0F17] border-[#1F2937] text-[#9CA3AF] hover:border-slate-700'
                     }`}
                   >
                     <div className="flex items-center justify-between text-xs font-mono font-semibold">
@@ -352,9 +332,7 @@ export default function App() {
             </div>
 
             <div className="pt-5 border-t border-[#1F2937]">
-              <div className="text-xs font-medium text-[#9CA3AF] mb-2.5">
-                Mounted MCP Servers (JSON-RPC 2.0)
-              </div>
+              <div className="text-xs font-medium text-[#9CA3AF] mb-2.5">Mounted MCP Servers (JSON-RPC 2.0)</div>
               <div className="space-y-2 text-xs">
                 {state.mcpServers.map((srv) => (
                   <div
@@ -366,9 +344,7 @@ export default function App() {
                     className="flex items-center justify-between text-[#9CA3AF] hover:text-[#F9FAFB] cursor-pointer py-0.5"
                   >
                     <span className="font-mono truncate">{srv.id}</span>
-                    <span className="font-mono tabular-nums text-[#9CA3AF]">
-                      {srv.toolCount} tools
-                    </span>
+                    <span className="font-mono tabular-nums text-[#9CA3AF]">{srv.toolCount} tools</span>
                   </div>
                 ))}
               </div>
@@ -384,106 +360,31 @@ export default function App() {
 
         <main id="top" className="flex-1 min-w-0 p-6 lg:p-8 space-y-6 overflow-y-auto">
           <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-            <div className="border border-[#1F2937] bg-[#111827] p-4 rounded-lg">
-              <div className="text-xs text-[#9CA3AF]">MCP Tool Surface &amp; Boundary</div>
-              <div className="mt-1.5 flex items-baseline justify-between">
-                <span className="text-2xl font-bold font-mono tabular-nums text-[#F9FAFB]">
-                  6 Servers · 28 Tools
-                </span>
+            {kpiCards.map((card) => (
+              <div key={card.label} className="border border-[#1F2937] bg-[#111827] p-4 rounded-lg">
+                <div className="text-xs text-[#9CA3AF]">{card.label}</div>
+                <div className="mt-1.5 flex items-baseline justify-between">
+                  <span className={`text-2xl font-bold font-mono tabular-nums ${card.primaryColor}`}>{card.primary}</span>
+                  {card.secondary && <span className={`text-xs font-mono tabular-nums ${card.secondaryColor}`}>{card.secondary}</span>}
+                </div>
+                <div className="mt-1 text-xs text-[#9CA3AF]">{card.footer}</div>
               </div>
-              <div className="mt-1 text-xs text-[#9CA3AF]">
-                Draft-07 JSON Schema · Granular RBAC Gate
-              </div>
-            </div>
-
-            <div className="border border-[#1F2937] bg-[#111827] p-4 rounded-lg">
-              <div className="text-xs text-[#9CA3AF]">Playbook Extractor Efficiency</div>
-              <div className="mt-1.5 flex items-baseline justify-between">
-                <span className="text-2xl font-bold font-mono tabular-nums text-[#16A34A]">
-                  -{state.metrics.avgStepReductionPct}% Steps
-                </span>
-                <span className="text-xs font-mono tabular-nums text-[#9CA3AF]">8.0 → 5.0 avg</span>
-              </div>
-              <div className="mt-1 text-xs text-[#9CA3AF]">
-                pgvector cosine injection + Kaggle GPU distillation
-              </div>
-            </div>
-
-            <div className="border border-[#1F2937] bg-[#111827] p-4 rounded-lg">
-              <div className="text-xs text-[#9CA3AF]">Perceived Incident Triage Latency</div>
-              <div className="mt-1.5 flex items-baseline justify-between">
-                <span className="text-2xl font-bold font-mono tabular-nums text-[#F9FAFB]">
-                  0.4s Ambient
-                </span>
-                <span className="text-xs font-mono tabular-nums text-[#D97706]">
-                  vs 46.4s Sync Chat
-                </span>
-              </div>
-              <div className="mt-1 text-xs text-[#9CA3AF]">
-                Pre-computed on webhook arrival · 0 clarifying questions
-              </div>
-            </div>
-
-            <div className="border border-[#1F2937] bg-[#111827] p-4 rounded-lg">
-              <div className="text-xs text-[#9CA3AF]">Weekly Active Operator Retention</div>
-              <div className="mt-1.5 flex items-baseline justify-between">
-                <span className="text-2xl font-bold font-mono tabular-nums text-[#16A34A]">
-                  84.0% Retained
-                </span>
-                <span className="text-xs font-mono tabular-nums text-[#DC2626]">Up from 28.0%</span>
-              </div>
-              <div className="mt-1 text-xs text-[#9CA3AF]">
-                Eliminated 72% week-one chat abandonment drop-off
-              </div>
-            </div>
+            ))}
           </section>
 
           <ErrorBoundary>
             {activeModule === 'ambient' && (
-              <AmbientPanel
-                events={state.ambientEvents}
-                selectedEventId={selectedEventId}
-                onSelectEventId={setSelectedEventId}
-                callerRole={callerRole}
-                ingestingWebhook={ingestingWebhook}
-                runningKaggleJob={runningKaggleJob}
-                onEmitWebhook={handleEmitWebhook}
-                onApproveEvent={handleApproveEvent}
-                onDistillEvent={handleDistillEvent}
-              />
+              <AmbientPanel events={state.ambientEvents} selectedEventId={selectedEventId} onSelectEventId={setSelectedEventId} callerRole={callerRole} onChangeCallerRole={setCallerRole} onRefreshSystemState={fetchSystemState} ingestingWebhook={ingestingWebhook} runningKaggleJob={runningKaggleJob} onEmitWebhook={handleEmitWebhook} onApproveEvent={handleApproveEvent} onDistillEvent={handleDistillEvent} />
             )}
-
             {activeModule === 'mcp' && (
-              <McpPanel
-                servers={state.mcpServers}
-                tools={state.mcpTools}
-                callerRole={callerRole}
-                onChangeCallerRole={setCallerRole}
-                selectedServerFilter={selectedServerFilter}
-                onSelectServerFilter={setSelectedServerFilter}
-                onRefreshState={fetchSystemState}
-              />
+              <McpPanel servers={state.mcpServers} tools={state.mcpTools} callerRole={callerRole} onChangeCallerRole={setCallerRole} selectedServerFilter={selectedServerFilter} onSelectServerFilter={setSelectedServerFilter} onRefreshState={fetchSystemState} />
             )}
-
             {activeModule === 'memory' && (
-              <MemoryPanel
-                avgStepReductionPct={state.metrics.avgStepReductionPct}
-                pgvectorPlaybooks={state.pgvectorPlaybooks}
-                redisTier1={state.redisTier1}
-                kaggleGpuJobs={state.kaggleGpuJobs}
-                selectedEventId={selectedEventId}
-                onRefreshState={fetchSystemState}
-              />
+              <MemoryPanel avgStepReductionPct={state.metrics.avgStepReductionPct} pgvectorPlaybooks={state.pgvectorPlaybooks} redisTier1={state.redisTier1} kaggleGpuJobs={state.kaggleGpuJobs} selectedEventId={selectedEventId} onRefreshState={fetchSystemState} />
             )}
-
             {activeModule === 'cli' && (
-              <CliPanel
-                wireLog={state.wireLog}
-                callerRole={callerRole}
-                onRefreshState={fetchSystemState}
-              />
+              <CliPanel wireLog={state.wireLog} callerRole={callerRole} onRefreshState={fetchSystemState} />
             )}
-
             {activeModule === 'audit' && <TrustAuditPanel callerRole={callerRole} />}
           </ErrorBoundary>
         </main>

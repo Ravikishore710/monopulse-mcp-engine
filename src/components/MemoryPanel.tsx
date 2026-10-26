@@ -4,6 +4,7 @@ import {
   PgVectorPlaybook,
   RedisTier1Entry
 } from '../types/monopulse.ts';
+import { KaggleGpuDashboard } from './KaggleGpuDashboard.tsx';
 
 interface MemoryPanelProps {
   avgStepReductionPct: number;
@@ -78,6 +79,8 @@ export function MemoryPanel({
           Distills successful multi-step agent trajectories into reusable Markdown skills on Kaggle GPU and dynamically injects them into the system prompt via cosine similarity—reducing steps-to-completion by {avgStepReductionPct}%.
         </p>
       </div>
+
+      <KaggleGpuDashboard jobs={kaggleGpuJobs} avgStepReductionPct={avgStepReductionPct} />
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         <div className="xl:col-span-7 border border-[#1F2937] bg-[#111827] rounded-lg p-5 space-y-4">

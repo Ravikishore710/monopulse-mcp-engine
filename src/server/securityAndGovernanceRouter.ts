@@ -7,7 +7,7 @@ import {
   verifyApprovalToken
 } from './cryptoSecurity.ts';
 import { getSqliteAuditLogs, getSqliteDatabaseSummary } from './sqliteEngine.ts';
-import { getConnectorStatusSummary } from './liveConnectors.ts';
+import { getConnectorStatusSummary, verifyLiveExternalConnectors } from './liveConnectors.ts';
 import {
   enqueueDlqEntry,
   exportSqliteSnapshotJson,
@@ -21,13 +21,24 @@ import {
 import { getOpenApi31Specification } from './mcpProtocolSpec.ts';
 import { PlaybookFeedbackSchema, RBACRoleSchema } from './validationSchemas.ts';
 import { recordPlaybookFeedback } from './memoryRanker.ts';
+import { createSlackWorkspaceRouter } from './slackWorkspaceEngine.ts';
 
 export function createSecurityAndGovernanceRouter(): Router {
   const router = Router();
+  router.use(createSlackWorkspaceRouter());
 
   // OpenAPI 3.1.0 Specification
   router.get('/api/openapi.json', (_req, res) => {
     res.json(getOpenApi31Specification());
+  });
+
+  // Live External Connector Probe (GitHub REST v3 & Jira Cloud REST v3)
+  router.get('/api/security/connectors/verify', async (_req, res) => {
+    const verification = await verifyLiveExternalConnectors();
+    res.json({
+      connectors: getConnectorStatusSummary(),
+      liveVerification: verification
+    });
   });
 
   // Issue Signed Bearer RBAC Token

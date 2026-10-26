@@ -1,14 +1,14 @@
-name: MonoPulse CI Quality Gates & API Suite
+name: CI Quality Gates & Build Reproducibility
 
 on:
   push:
-    branches: ['*']
+    branches: [main, master, '*']
   pull_request:
-    branches: ['*']
+    branches: [main, master, '*']
 
 jobs:
-  quality-gates-and-api-tests:
-    name: Quality Gates, Typecheck, Unit & API Test Suite
+  build-and-test:
+    name: Install, Typecheck (tsc --noEmit) & Test
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -27,17 +27,17 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Run TypeScript compiler check (tsc --noEmit)
-        run: npx tsc --noEmit
+      - name: Run TypeScript typecheck
+        run: tsc --noEmit
 
       - name: Run ESLint static analysis
         run: npm run lint:eslint
 
-      - name: Run dedicated HTTP & JSON-RPC API test suite
-        run: npm run test:api
-
-      - name: Run full Vitest automated test suite
+      - name: Run automated test suite
         run: npm run test
+
+      - name: Run API integration test suite
+        run: npm run test:api
 
       - name: Verify reproducible production build
         run: npm run build
