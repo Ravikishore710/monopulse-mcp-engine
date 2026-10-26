@@ -1,5 +1,25 @@
 export type RBACRole = 'sre_admin' | 'eng_lead' | 'support_tier2' | 'readonly_analyst';
-export type ActiveModule = 'ambient' | 'mcp' | 'memory' | 'cli' | 'audit';
+export type ActiveModule =
+  | 'incidents'
+  | 'workspace'
+  | 'integrations'
+  | 'playbooks'
+  | 'audit'
+  | 'ambient'
+  | 'mcp'
+  | 'memory'
+  | 'cli';
+
+export function normalizeActiveModule(
+  raw?: string | null
+): 'incidents' | 'workspace' | 'integrations' | 'playbooks' | 'audit' {
+  const clean = (raw || '').replace(/^#/, '').toLowerCase();
+  if (clean === 'workspace') return 'workspace';
+  if (clean === 'integrations' || clean === 'mcp') return 'integrations';
+  if (clean === 'playbooks' || clean === 'memory') return 'playbooks';
+  if (clean === 'audit' || clean === 'cli') return 'audit';
+  return 'incidents';
+}
 
 export interface MCPServerMetadata {
   id: string;
@@ -168,7 +188,7 @@ export const DEFAULT_TOOL_ARGS: Record<string, Record<string, any>> = {
   sql_inspect_table_schema: { table_name: 'deployments' },
   sql_explain_query_plan: {
     query:
-      "SELECT id, amount_cents FROM ledger_entries WHERE org_id = 'org_acme_global' FOR UPDATE"
+      "SELECT id, amount_cents FROM ledger_entries WHERE org_id = 'org_acme_global' ORDER BY id DESC LIMIT 50"
   },
   sql_sample_recent_rows: { table_name: 'service_incidents', limit: 5 },
   sql_check_replication_lag: { cluster_name: 'ledger-prod-cluster' },

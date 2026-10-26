@@ -61,39 +61,39 @@ export function CommandPalette({
       action: () => handleToggleSim()
     },
     {
-      id: 'mod-ambient',
-      category: 'Module',
-      label: 'Go to 01. Ambient Event Bus & 1-Click Approvals',
-      action: () => onSelectModule('ambient')
+      id: 'page-incidents',
+      category: 'Page',
+      label: 'Go to Incidents — Active Triage & Remediation Queue',
+      action: () => onSelectModule('incidents')
     },
     {
-      id: 'mod-mcp',
-      category: 'Module',
-      label: 'Go to 02. MCP Tool Boundary & RBAC Gatekeeper',
-      action: () => onSelectModule('mcp')
+      id: 'page-workspace',
+      category: 'Page',
+      label: 'Go to Workspace — Team Incident Channels & Threads',
+      action: () => onSelectModule('workspace')
     },
     {
-      id: 'mod-memory',
-      category: 'Module',
-      label: 'Go to 03. Hybrid Memory & Kaggle GPU Distiller',
-      action: () => onSelectModule('memory')
+      id: 'page-integrations',
+      category: 'Page',
+      label: 'Go to Integrations — Connected Services & Tool Catalog',
+      action: () => onSelectModule('integrations')
     },
     {
-      id: 'mod-cli',
-      category: 'Module',
-      label: 'Go to 04. Live CLI Harness & Wire Protocol Log',
-      action: () => onSelectModule('cli')
+      id: 'page-playbooks',
+      category: 'Page',
+      label: 'Go to Playbooks — Operational Runbooks & Search',
+      action: () => onSelectModule('playbooks')
     },
     {
-      id: 'mod-audit',
-      category: 'Module',
-      label: 'Go to 05. SQLite, Hash-Chain & Crypto Audit',
+      id: 'page-audit',
+      category: 'Page',
+      label: 'Go to Audit & Settings — Compliance Ledger, CLI & Sandbox',
       action: () => onSelectModule('audit')
     },
     {
       id: 'act-webhook',
       category: 'Action',
-      label: 'Emit Incident Webhook (Pre-Compute Read-Only Trace)',
+      label: 'Ingest Test Incident Event',
       action: () => onEmitWebhook()
     },
     {
@@ -105,18 +105,18 @@ export function CommandPalette({
     {
       id: 'role-ro',
       category: 'RBAC Role',
-      label: 'Switch Caller Role -> readonly_analyst (Zero Mutations)',
+      label: 'Switch Caller Role -> readonly_analyst (Read-Only)',
       action: () => onSelectRole('readonly_analyst')
     }
   ];
 
   const toolItems = tools.slice(0, 28).map((t) => ({
     id: `tool-${t.name}`,
-    category: `MCP · ${t.serverId}`,
+    category: `Integration · ${t.serverId}`,
     label: `${t.name} — ${t.description}`,
     action: () => {
       onSelectToolServer(t.serverId);
-      onSelectModule('mcp');
+      onSelectModule('integrations');
     }
   }));
 
@@ -142,6 +142,13 @@ export function CommandPalette({
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && filtered.length > 0) {
+                e.preventDefault();
+                filtered[0].action();
+                onClose();
+              }
+            }}
             placeholder="Type a command, Simulation toggle, module, RBAC role, or MCP tool..."
             className="w-full bg-transparent text-xs font-mono text-[#F9FAFB] focus:outline-none"
           />

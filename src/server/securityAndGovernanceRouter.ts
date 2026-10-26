@@ -27,12 +27,15 @@ import { getOpenApi31Specification } from './mcpProtocolSpec.ts';
 import { PlaybookFeedbackSchema, RBACRoleSchema } from './validationSchemas.ts';
 import { recordPlaybookFeedback } from './memoryRanker.ts';
 import { createSlackWorkspaceRouter } from './slackWorkspaceEngine.ts';
+import { createCustomIntegrationsRouter } from './customIntegrationsEngine.ts';
 import { broadcastSseEvent } from './observabilityEngine.ts';
 import { SimulationDataService } from './simulationDataService.ts';
+import { SystemLoadStressTest } from './systemLoadStressTest.ts';
 
 export function createSecurityAndGovernanceRouter(): Router {
   const router = Router();
   router.use(createSlackWorkspaceRouter());
+  router.use(createCustomIntegrationsRouter());
 
   // Simulation Mode Toggle (Mock External MCP Connectors + Populate SQL_TABLES, JIRA_TICKETS, SLACK_THREADS)
   router.get('/api/system/simulation', (_req, res) => {
@@ -61,9 +64,13 @@ export function createSecurityAndGovernanceRouter(): Router {
     });
   });
 
-  // High-Concurrency Multi-User Burst Load Test Endpoint
-  router.post('/api/system/load-test', async (_req, res) => {
-    const report = await SimulationDataService.runConcurrentLoadTest();
+  // High-Concurrency Multi-User Burst Load & Stress Test Endpoints
+  router.post(['/api/system/load-test', '/api/system/stress-test'], async (req, res) => {
+    const report = await SystemLoadStressTest.runStressTest({
+      webhookBurstSize: typeof req.body?.webhookBurstSize === 'number' ? req.body.webhookBurstSize : undefined,
+      rpcBurstSize: typeof req.body?.rpcBurstSize === 'number' ? req.body.rpcBurstSize : undefined,
+      competingApprovers: typeof req.body?.competingApprovers === 'number' ? req.body.competingApprovers : undefined
+    });
     broadcastSseEvent('simulation.toggled', { simulationMode: true, loadTestCompleted: true });
     res.json(report);
   });

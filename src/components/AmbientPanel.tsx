@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { Check, Cpu, Edit3 } from 'lucide-react';
+import { Check, Cpu, Edit3, Search, ShieldCheck } from 'lucide-react';
 import { AmbientEventRecord, RBACRole } from '../types/monopulse.ts';
-import { SlackWorkspaceSimulator } from './SlackWorkspaceSimulator.tsx';
 
 interface AmbientPanelProps {
   events: AmbientEventRecord[];
@@ -10,9 +9,9 @@ interface AmbientPanelProps {
   callerRole: RBACRole;
   onChangeCallerRole?: (role: RBACRole) => void;
   onRefreshSystemState?: () => Promise<void>;
-  ingestingWebhook: boolean;
+  ingestingWebhook?: boolean;
   runningKaggleJob: boolean;
-  onEmitWebhook: (params: {
+  onEmitWebhook?: (params: {
     source: 'slack.incident.webhook' | 'jira.issue.created' | 'github.canary.alert';
     service: 'checkout-ledger-svc' | 'webhook-dispatcher-v2';
     summary: string;
@@ -25,17 +24,59 @@ interface AmbientPanelProps {
 }
 
 export function AmbientPanel({
-  events, selectedEventId, onSelectEventId, callerRole, onChangeCallerRole, onRefreshSystemState, ingestingWebhook, runningKaggleJob, onEmitWebhook, onApproveEvent, onDistillEvent
+  events,
+  selectedEventId,
+  onSelectEventId,
+  callerRole,
+  onRefreshSystemState,
+  runningKaggleJob,
+  onApproveEvent,
+  onDistillEvent
 }: AmbientPanelProps) {
-  const [webhookService, setWebhookService] = useState<'checkout-ledger-svc' | 'webhook-dispatcher-v2'>('checkout-ledger-svc');
-  const [webhookSource, setWebhookSource] = useState<'slack.incident.webhook' | 'jira.issue.created' | 'github.canary.alert'>('slack.incident.webhook');
-  const [webhookSummary, setWebhookSummary] = useState<string>('[FIRING: P0] checkout-ledger-svc 5xx error spike (14.8%) & PgBouncer saturation (98%) after canary dep-9042 rollout.');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'executed'>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [editingMutations, setEditingMutations] = useState<Record<string, string>>({});
   const [isEditingBlock, setIsEditingBlock] = useState(false);
   const [approvalFeedback, setApprovalFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const [showLegacyComparison, setShowLegacyComparison] = useState(false);
+  const [quorumOperator, setQuorumOperator] = useState<string>('ravi.kishore');
+  const [quorumState, setQuorumState] = useState<{
+    signaturesCollected: number;
+    requiredSignatures: number;
+    quorumMet: boolean;
+    signers: string[];
+  } | null>(null);
 
-  const selectedEvent = events.find((e) => e.eventId === selectedEventId) || events[0];
+  const filteredEvents = events.filter((evt) => {
+    const matchesStatus =
+      statusFilter === 'all' ||
+      (statusFilter === 'pending' && evt.approvalState === 'STAGED_1CLICK_READY') ||
+      (statusFilter === 'executed' && evt.approvalState !== 'STAGED_1CLICK_READY');
+    const q = searchQuery.trim().toLowerCase();
+    const matchesSearch =
+      !q ||
+      evt.eventId.toLowerCase().includes(q) ||
+      evt.service.toLowerCase().includes(q) ||
+      evt.channelOrTicket.toLowerCase().includes(q) ||
+      evt.incomingPayloadSummary.toLowerCase().includes(q);
+    return matchesStatus && matchesSearch;
+  });
+
+  const selectedEvent =
+    filteredEvents.find((e) => e.eventId === selectedEventId) ||
+    events.find((e) => e.eventId === selectedEventId) ||
+    events[0];
+
+  const handleSignQuorum = async (operatorId: string) => {
+    if (!selectedEvent) return;
+    const res = await fetch(`/api/events/${selectedEvent.eventId}/quorum-sign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operatorId, callerRole })
+    });
+    const data = await res.json();
+    setQuorumState(data);
+    if (onRefreshSystemState) await onRefreshSystemState();
+  };
 
   const handleConfirmApproval = async () => {
     if (!selectedEvent) return;
@@ -49,7 +90,10 @@ export function AmbientPanel({
             editedList.push({ id: mut.id, args: JSON.parse(raw) });
           } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : 'Invalid JSON';
-            setApprovalFeedback({ type: 'error', message: `Invalid JSON in edited parameters for ${mut.toolName}: ${msg}` });
+            setApprovalFeedback({
+              type: 'error',
+              message: `Invalid JSON in edited parameters for ${mut.toolName}: ${msg}`
+            });
             return;
           }
         }
@@ -64,147 +108,89 @@ export function AmbientPanel({
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#1F2937] pb-4">
         <div>
-          <h1 className="text-xl font-bold text-[#F9FAFB] font-display">01. Ambient Event-Driven Pre-Computation &amp; 1-Click Approval Bus</h1>
-          <p className="text-xs text-[#9CA3AF] mt-1">Re-architected from a 45-second synchronous chatbot into a silent webhook pre-computation pipeline that posts a single 1-Click Approve/Edit block.</p>
-        </div>
-        <button
-          onClick={() => setShowLegacyComparison(!showLegacyComparison)}
-          className="px-3.5 py-2 text-xs font-medium border border-[#1F2937] bg-[#111827] text-[#F9FAFB] rounded-md hover:border-slate-600 transition-colors cursor-pointer whitespace-nowrap shrink-0"
-        >
-          {showLegacyComparison ? 'Hide Legacy Sync Chat War Story' : 'Compare Legacy Sync Chat (72% Drop-off) vs Ambient'}
-        </button>
-      </div>
-
-      {showLegacyComparison && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 border border-[#1F2937] bg-[#111827] p-5 rounded-lg">
-          <div className="border border-[#1F2937] bg-[#0B0F17] p-4 rounded-md space-y-3">
-            <div className="flex items-center justify-between text-xs font-mono">
-              <span className="text-[#DC2626] font-semibold">LEGACY V1: SYNCHRONOUS CHATBOT LOOP (ABANDONED)</span>
-              <span className="tabular-nums text-[#9CA3AF]">46.4s Wait · 72% Abandonment</span>
-            </div>
-            <div className="space-y-2 text-xs font-mono text-[#9CA3AF]">
-              <div className="p-2 bg-[#111827] rounded">[00.0s] On-Call Engineer: &quot;checkout-ledger-svc is throwing 503s, what happened?&quot;</div>
-              <div className="p-2 bg-[#111827] rounded text-[#D97706]">[14.2s] Legacy Bot: &quot;Which cloud region and environment should I check? Also please provide the Jira key.&quot;</div>
-              <div className="p-2 bg-[#111827] rounded">[24.0s] On-Call Engineer: &quot;us-east-1 prod, OPS-4821. Just check the latest deploy!&quot;</div>
-              <div className="p-2 bg-[#111827] rounded text-[#D97706]">[46.4s] Legacy Bot: &quot;Ran 8 unguided schema &amp; log queries. Would you like me to check GitHub PR #1842 next?&quot;</div>
-            </div>
-          </div>
-          <div className="border border-[#1F2937] bg-[#0B0F17] p-4 rounded-md space-y-3">
-            <div className="flex items-center justify-between text-xs font-mono">
-              <span className="text-[#16A34A] font-semibold">MONOPULSE V2: AMBIENT EVENT PRE-COMPUTATION</span>
-              <span className="tabular-nums text-[#9CA3AF]">0.4s Perceived · 84% Retention</span>
-            </div>
-            <div className="space-y-2 text-xs font-mono text-[#9CA3AF]">
-              <div className="p-2 bg-[#111827] rounded">[T+0.0s] PagerDuty / Slack Webhook fires on #inc-prod-alerts (OPS-4821).</div>
-              <div className="p-2 bg-[#111827] rounded text-[#F9FAFB]">[T+0.1s] Tier-2 pgvector matches Playbook PB-LEDGER-CANARY-01 (-37.5% steps).</div>
-              <div className="p-2 bg-[#111827] rounded text-[#F9FAFB]">[T+1.4s] Background worker runs deterministic read-only MCP tools (SQL + GitHub Diff).</div>
-              <div className="p-2 bg-[#111827] rounded text-[#16A34A]">[T+1.6s] Posts 1-Click Approve/Edit Summary Block in Slack before engineer opens thread.</div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <SlackWorkspaceSimulator
-        callerRole={callerRole}
-        onChangeCallerRole={onChangeCallerRole}
-        onRefreshSystemState={onRefreshSystemState || (async () => {})}
-      />
-
-      <div className="border border-[#1F2937] bg-[#111827] p-5 rounded-lg space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold text-[#F9FAFB]">Simulate Incoming Organizational Event Webhook</h2>
-          <div className="flex items-center gap-2 text-xs text-[#9CA3AF]">
-            <span>Preset Triggers:</span>
-            <button onClick={() => { setWebhookService('checkout-ledger-svc'); setWebhookSource('slack.incident.webhook'); setWebhookSummary('[FIRING: P0] checkout-ledger-svc 5xx error spike (14.8%) & PgBouncer saturation (98%) after canary dep-9042 rollout.'); }} className="underline hover:text-[#F9FAFB] cursor-pointer">P0 Ledger Canary Lock</button>
-            <span>·</span>
-            <button onClick={() => { setWebhookService('webhook-dispatcher-v2'); setWebhookSource('jira.issue.created'); setWebhookSummary('Jira OPS-4819 created: Cross-region EU webhook TLS handshake ETIMEDOUT after PR #1835 reduced timeout to 400ms.'); }} className="underline hover:text-[#F9FAFB] cursor-pointer">P1 EU Webhook TLS Timeout</button>
-          </div>
+          <h1 className="text-xl font-bold text-[#F9FAFB] font-display">
+            Incident Triage &amp; Remediation Queue
+          </h1>
+          <p className="text-xs text-[#9CA3AF] mt-1">
+            Review automated read-only diagnostic traces, verify root-cause findings, and authorize staged production remediations.
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-          <div className="md:col-span-3">
-            <label className="block text-xs text-[#9CA3AF] mb-1">Event Source</label>
-            <select
-              value={webhookSource}
-              onChange={(e) => setWebhookSource(e.target.value as any)}
-              className="w-full bg-[#0B0F17] border border-[#1F2937] rounded-md px-3 py-2 text-xs font-mono text-[#F9FAFB]"
-            >
-              <option value="slack.incident.webhook">slack.incident.webhook</option>
-              <option value="jira.issue.created">jira.issue.created</option>
-              <option value="github.canary.alert">github.canary.alert</option>
-            </select>
-          </div>
-
-          <div className="md:col-span-3">
-            <label className="block text-xs text-[#9CA3AF] mb-1">Target Microservice</label>
-            <select
-              value={webhookService}
-              onChange={(e) => setWebhookService(e.target.value as any)}
-              className="w-full bg-[#0B0F17] border border-[#1F2937] rounded-md px-3 py-2 text-xs font-mono text-[#F9FAFB]"
-            >
-              <option value="checkout-ledger-svc">checkout-ledger-svc</option>
-              <option value="webhook-dispatcher-v2">webhook-dispatcher-v2</option>
-            </select>
-          </div>
-
-          <div className="md:col-span-4">
-            <label className="block text-xs text-[#9CA3AF] mb-1">Webhook Event Payload</label>
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-[#9CA3AF] absolute left-3 top-2.5" />
             <input
               type="text"
-              value={webhookSummary}
-              onChange={(e) => setWebhookSummary(e.target.value)}
-              className="w-full bg-[#0B0F17] border border-[#1F2937] rounded-md px-3 py-2 text-xs text-[#F9FAFB]"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search service or ticket..."
+              className="bg-[#111827] border border-[#1F2937] rounded-md pl-8 pr-3 py-1.5 text-xs text-[#F9FAFB] w-52"
             />
           </div>
-
-          <div className="md:col-span-2 flex items-end">
-            <button
-              onClick={() => onEmitWebhook({ source: webhookSource, service: webhookService, summary: webhookSummary })}
-              disabled={ingestingWebhook}
-              className="w-full px-4 py-2 bg-[#2563EB] hover:bg-blue-500 text-white text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap disabled:opacity-50"
-            >
-              {ingestingWebhook ? 'Running...' : 'Ingest & Pre-Compute'}
-            </button>
+          <div className="flex items-center gap-1 p-1 bg-[#111827] border border-[#1F2937] rounded-lg">
+            {(['all', 'pending', 'executed'] as const).map((st) => (
+              <button
+                key={st}
+                onClick={() => setStatusFilter(st)}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
+                  statusFilter === st
+                    ? 'bg-[#2563EB] text-white'
+                    : 'text-[#9CA3AF] hover:text-[#F9FAFB]'
+                }`}
+              >
+                {st === 'all' ? 'All' : st === 'pending' ? 'Pending Approval' : 'Executed'}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
         <div className="xl:col-span-4 space-y-3">
-          <div className="text-xs font-semibold text-[#9CA3AF]">Ambient Pre-Computed Event Queue ({events.length})</div>
-          {events.map((evt) => {
-            const isSelected = evt.eventId === selectedEvent?.eventId;
-            return (
-              <div
-                key={evt.eventId}
-                onClick={() => {
-                  onSelectEventId(evt.eventId);
-                  setIsEditingBlock(false);
-                  setApprovalFeedback(null);
-                }}
-                className={`p-4 rounded-lg border transition-colors cursor-pointer ${
-                  isSelected ? 'bg-[#111827] border-[#2563EB]' : 'bg-[#0E131F] border-[#1F2937] hover:border-slate-700'
-                }`}
-              >
-                <div className="flex items-center justify-between text-xs font-mono text-[#9CA3AF]">
-                  <span className="text-[#F9FAFB] font-semibold">{evt.eventId}</span>
-                  <span>
-                    {evt.approvalState === 'STAGED_1CLICK_READY' ? (
-                      <span className="text-[#D97706]">1-CLICK READY</span>
-                    ) : (
-                      <span className="text-[#16A34A]">{evt.approvalState}</span>
-                    )}
-                  </span>
+          <div className="flex items-center justify-between text-xs font-semibold text-[#9CA3AF]">
+            <span>Incident Queue ({filteredEvents.length})</span>
+            <span className="font-mono tabular-nums">Role: {callerRole}</span>
+          </div>
+          {filteredEvents.length === 0 ? (
+            <div className="p-6 rounded-lg border border-[#1F2937] bg-[#111827] text-xs text-[#9CA3AF] text-center">
+              No incidents match the current filter criteria.
+            </div>
+          ) : (
+            filteredEvents.map((evt) => {
+              const isSelected = evt.eventId === selectedEvent?.eventId;
+              return (
+                <div
+                  key={evt.eventId}
+                  onClick={() => {
+                    onSelectEventId(evt.eventId);
+                    setIsEditingBlock(false);
+                    setApprovalFeedback(null);
+                    setQuorumState(null);
+                  }}
+                  className={`p-4 rounded-lg border transition-colors cursor-pointer ${
+                    isSelected
+                      ? 'bg-[#111827] border-[#2563EB]'
+                      : 'bg-[#0E131F] border-[#1F2937] hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between text-xs font-mono text-[#9CA3AF]">
+                    <span className="text-[#F9FAFB] font-semibold">{evt.eventId}</span>
+                    <span className={evt.approvalState === 'STAGED_1CLICK_READY' ? 'text-[#D97706]' : 'text-[#16A34A]'}>
+                      {evt.approvalState === 'STAGED_1CLICK_READY' ? 'PENDING APPROVAL' : 'EXECUTED'}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 text-xs font-medium text-[#F9FAFB]">
+                    {evt.service} · {evt.channelOrTicket}
+                  </div>
+                  <p className="mt-1 text-xs text-[#9CA3AF] line-clamp-2">{evt.incomingPayloadSummary}</p>
+                  <div className="mt-2.5 pt-2 border-t border-[#1F2937] flex items-center justify-between text-[11px] font-mono text-[#9CA3AF] tabular-nums">
+                    <span>Runbook: {evt.matchedPlaybook?.id || 'NONE'}</span>
+                    <span>Diag: {evt.precomputeLatencyMs}ms</span>
+                  </div>
                 </div>
-                <div className="mt-1.5 text-xs font-medium text-[#F9FAFB]">{evt.service} · {evt.channelOrTicket}</div>
-                <p className="mt-1 text-xs text-[#9CA3AF] line-clamp-2">{evt.incomingPayloadSummary}</p>
-                <div className="mt-2.5 pt-2 border-t border-[#1F2937] flex items-center justify-between text-[11px] font-mono text-[#9CA3AF] tabular-nums">
-                  <span>Playbook: {evt.matchedPlaybook?.id || 'NONE'}</span>
-                  <span>Precompute: {evt.precomputeLatencyMs}ms</span>
-                </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
 
         {selectedEvent && (
@@ -218,29 +204,19 @@ export function AmbientPanel({
                   <span className="mx-2">·</span>
                   <span>{selectedEvent.channelOrTicket}</span>
                 </div>
-                <div className="tabular-nums">Background Precompute: {selectedEvent.precomputeLatencyMs}ms · Perceived User Wait: 0ms</div>
+                <div className="tabular-nums">Diagnostic Duration: {selectedEvent.precomputeLatencyMs}ms</div>
               </div>
-              <h3 className="text-base font-bold text-[#F9FAFB]">{selectedEvent.incomingPayloadSummary}</h3>
+              <h2 className="text-base font-bold text-[#F9FAFB]">{selectedEvent.incomingPayloadSummary}</h2>
             </div>
-
-            {selectedEvent.matchedPlaybook && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-[#F9FAFB]">Step 1 · Tier-2 pgvector Playbook Match &amp; System Prompt Injection</span>
-                  <span className="font-mono tabular-nums text-[#16A34A]">
-                    Cosine Similarity: {selectedEvent.matchedPlaybook.cosineSimilarity} · Step Reduction: -{selectedEvent.matchedPlaybook.stepReductionPct}%
-                  </span>
-                </div>
-                <pre className="p-3.5 rounded-md bg-[#0B0F17] border border-[#1F2937] text-xs font-mono text-[#9CA3AF] overflow-x-auto whitespace-pre-wrap leading-relaxed">
-                  {selectedEvent.injectedSystemPrompt}
-                </pre>
-              </div>
-            )}
 
             <div className="space-y-2.5">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-[#F9FAFB]">Step 2 · Autonomous Background Read-Only MCP Tool Trace ({selectedEvent.autonomousReadOnlyTrace.length} calls)</span>
-                <span className="font-mono text-[#9CA3AF]">Zero mutations permitted during pre-computation</span>
+                <span className="font-semibold text-[#F9FAFB]">
+                  Automated Read-Only Diagnostic Trace ({selectedEvent.autonomousReadOnlyTrace.length} checks)
+                </span>
+                <span className="font-mono text-[#9CA3AF]">
+                  Matched Runbook: {selectedEvent.matchedPlaybook?.id || 'Standard Triage'}
+                </span>
               </div>
               <div className="border border-[#1F2937] rounded-md divide-y divide-[#1F2937] bg-[#0B0F17]">
                 {selectedEvent.autonomousReadOnlyTrace.map((t) => (
@@ -263,14 +239,16 @@ export function AmbientPanel({
             <div className="border border-[#2563EB]/60 bg-[#0B0F17] rounded-lg p-5 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#1F2937] pb-3">
                 <div>
-                  <div className="text-xs font-mono text-[#2563EB] font-semibold">SLACK / JIRA AMBIENT BLOCK · 1-CLICK APPROVE / EDIT</div>
+                  <div className="text-xs font-mono text-[#2563EB] font-semibold">
+                    REMEDIATION APPROVAL &amp; EXECUTION PLAN
+                  </div>
                   <div className="text-xs text-[#9CA3AF] mt-0.5">
-                    Signed Approval Token: <code className="font-mono text-[#F9FAFB]">{selectedEvent.approvalToken}</code> · Active Caller Role: <code className="font-mono text-[#F9FAFB]">{callerRole}</code>
+                    Approval Signature: <code className="font-mono text-[#F9FAFB]">{selectedEvent.approvalToken}</code> · Role: <code className="font-mono text-[#F9FAFB]">{callerRole}</code>
                   </div>
                 </div>
                 <div className="text-xs font-mono">
                   {selectedEvent.approvalState === 'STAGED_1CLICK_READY' ? (
-                    <span className="text-[#D97706]">AWAITING 1-CLICK SIGN-OFF</span>
+                    <span className="text-[#D97706]">AWAITING SIGN-OFF</span>
                   ) : (
                     <span className="text-[#16A34A]">{selectedEvent.approvalState} BY {selectedEvent.approvedByRole?.toUpperCase()}</span>
                   )}
@@ -278,12 +256,45 @@ export function AmbientPanel({
               </div>
 
               <div className="text-xs text-[#F9FAFB] leading-relaxed bg-[#111827] p-3.5 rounded border border-[#1F2937]">
-                <span className="font-semibold text-[#9CA3AF] block mb-1">Pre-Computed Root Cause Synthesis:</span>
+                <span className="font-semibold text-[#9CA3AF] block mb-1">Root Cause Synthesis:</span>
                 {selectedEvent.rootCauseSynthesis}
               </div>
 
+              <div className="p-3 rounded border border-[#1F2937] bg-[#111827] flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-[#2563EB]" />
+                  <div>
+                    <span className="font-semibold text-[#F9FAFB]">Two-Person Production Quorum (M-of-N = 2/2)</span>
+                    <div className="text-[11px] font-mono text-[#9CA3AF]">
+                      {quorumState
+                        ? `Signers: ${quorumState.signers.join(', ') || 'none'} (${quorumState.signaturesCollected}/${quorumState.requiredSignatures}) · ${quorumState.quorumMet ? 'QUORUM MET' : 'AWAITING 2ND SIGNER'}`
+                        : 'Co-sign as two distinct operators before executing high-blast-radius rollbacks'}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={quorumOperator}
+                    onChange={(e) => setQuorumOperator(e.target.value)}
+                    className="bg-[#0B0F17] border border-[#1F2937] rounded px-2.5 py-1 text-xs font-mono text-[#F9FAFB]"
+                  >
+                    <option value="ravi.kishore">@ravi.kishore (SRE)</option>
+                    <option value="sre_oncall_dana">@sre_oncall_dana (SRE)</option>
+                    <option value="mchen">@mchen (Eng Lead)</option>
+                  </select>
+                  <button
+                    onClick={() => handleSignQuorum(quorumOperator)}
+                    className="px-3 py-1 bg-[#1F2937] hover:bg-slate-700 text-[#F9FAFB] text-xs font-mono rounded cursor-pointer whitespace-nowrap"
+                  >
+                    Sign Quorum
+                  </button>
+                </div>
+              </div>
+
               <div className="space-y-2.5">
-                <div className="text-xs font-semibold text-[#9CA3AF]">Staged MCP Write Mutations ({selectedEvent.stagedMutations.length})</div>
+                <div className="text-xs font-semibold text-[#9CA3AF]">
+                  Staged Remediation Actions ({selectedEvent.stagedMutations.length})
+                </div>
                 {selectedEvent.stagedMutations.map((mut) => (
                   <div key={mut.id} className="p-3 rounded border border-[#1F2937] bg-[#111827] space-y-2 text-xs">
                     <div className="flex flex-wrap items-center justify-between gap-2 font-mono">
@@ -292,7 +303,7 @@ export function AmbientPanel({
                         <span className="mx-1.5 text-[#9CA3AF]">·</span>
                         <span className="text-[#9CA3AF]">{mut.serverId}</span>
                         <span className="mx-1.5 text-[#9CA3AF]">·</span>
-                        <span className="text-[#D97706]">Requires: {mut.requiredRole}+</span>
+                        <span className="text-[#D97706]">Role: {mut.requiredRole}+</span>
                       </div>
                       <span className={mut.status === 'EXECUTED' ? 'text-[#16A34A]' : mut.status === 'FAILED' ? 'text-[#DC2626]' : 'text-[#9CA3AF]'}>
                         {mut.status}
@@ -332,7 +343,7 @@ export function AmbientPanel({
                     className="px-4 py-2 bg-[#16A34A] hover:bg-green-500 text-white text-xs font-semibold rounded-md transition-colors flex items-center gap-2 cursor-pointer whitespace-nowrap"
                   >
                     <Check className="w-4 h-4" />
-                    <span>{isEditingBlock ? 'Approve & Execute Edited Block' : '1-Click Approve & Execute'}</span>
+                    <span>{isEditingBlock ? 'Approve & Execute Edited Actions' : 'Approve & Execute Remediation'}</span>
                   </button>
 
                   <button
@@ -349,7 +360,7 @@ export function AmbientPanel({
                     className="px-3.5 py-2 border border-[#1F2937] bg-[#111827] hover:border-slate-600 text-xs font-medium text-[#F9FAFB] rounded-md transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
                   >
                     <Edit3 className="w-3.5 h-3.5" />
-                    <span>{isEditingBlock ? 'Cancel Edit' : 'Edit Staged Parameters'}</span>
+                    <span>{isEditingBlock ? 'Cancel Edit' : 'Edit Parameters'}</span>
                   </button>
                 </div>
 
@@ -359,7 +370,7 @@ export function AmbientPanel({
                   className="px-3.5 py-2 border border-[#1F2937] bg-[#111827] hover:border-[#2563EB] text-xs font-medium text-[#9CA3AF] hover:text-[#F9FAFB] rounded-md transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
                 >
                   <Cpu className="w-3.5 h-3.5 text-[#2563EB]" />
-                  <span>{runningKaggleJob ? 'Distilling on Kaggle GPU...' : 'Distill Trajectory to Playbook (Kaggle GPU)'}</span>
+                  <span>{runningKaggleJob ? 'Saving to Runbook Library...' : 'Save Trajectory as Runbook'}</span>
                 </button>
               </div>
             </div>

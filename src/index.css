@@ -2,8 +2,8 @@
 
 @layer base {
   :root {
-    --font-display: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-sans: 'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-display: 'Outfit', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
   }
 
@@ -11,16 +11,54 @@
     font-family: var(--font-sans);
     background-color: #0B0F17;
     color: #F9FAFB;
-    letter-spacing: 0.01em;
+    letter-spacing: -0.005em;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html.light body {
+    background-color: #F8FAFC;
+    color: #0F172A;
+  }
+
+  html.light .bg-\[\#0B0F17\] {
+    background-color: #F8FAFC !important;
+  }
+
+  html.light .bg-\[\#0E131F\] {
+    background-color: #F1F5F9 !important;
+  }
+
+  html.light .bg-\[\#111827\] {
+    background-color: #FFFFFF !important;
+  }
+
+  html.light .text-\[\#F9FAFB\] {
+    color: #0F172A !important;
+  }
+
+  html.light .text-\[\#9CA3AF\] {
+    color: #475569 !important;
+  }
+
+  html.light .border-\[\#1F2937\] {
+    border-color: #E2E8F0 !important;
+  }
+
+  html.light .divide-\[\#1F2937\] > :not([hidden]) ~ :not([hidden]) {
+    border-color: #E2E8F0 !important;
   }
 
   h1, h2, h3, h4, .font-display {
     font-family: var(--font-display);
+    letter-spacing: -0.02em;
     text-wrap: balance;
   }
 
   code, pre, .font-mono, .tabular-nums {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
   }
 }

@@ -1,10 +1,4 @@
 import { SQL_TABLES, JIRA_TICKETS, SLACK_THREADS, GITHUB_PRS } from './sandboxData.ts';
-import { executeMCPToolCall } from './mcpRegistry.ts';
-import { ingestAmbientWebhookEvent, executeStagedApprovalBlock } from './ambientOrchestrator.ts';
-import { acquireEventApprovalLock, computeAndRecordWebhookFingerprint, releaseEventApprovalLock } from './sqliteEngine.ts';
-import { persistAmbientEventToSqlite, recordQuorumApprovalSignature, verifyAuditHashChain } from './durableLedger.ts';
-import { setSimulationModeActive } from './liveConnectors.ts';
-import { RBACRole } from '../types/monopulse.ts';
 
 export interface SimulationDatasetSummary {
   seeded: boolean;
@@ -184,114 +178,13 @@ export class SimulationDataService {
 
   /**
    * Executes a high-concurrency burst of webhooks, multi-role MCP RPC calls,
-   * and competing 1-Click Approvals to verify race-condition safety and state integrity.
+   * and competing 1-Click Approvals via SystemLoadStressTest.
    */
-  static async runConcurrentLoadTest(): Promise<LoadTestMetricsReport> {
-    const startMs = Date.now();
-    setSimulationModeActive(true);
-    const datasetSummary = SimulationDataService.populateSimulationData();
-
-    const burstPayloads = [
-      { source: 'slack.incident.webhook' as const, service: 'checkout-ledger-svc' as const, channelOrTicket: '#inc-prod-alerts · OPS-4824', payloadSummary: '[LOAD-TEST BURST A] PgBouncer pool saturation 98% on org_hyperion_pay' },
-      { source: 'slack.incident.webhook' as const, service: 'checkout-ledger-svc' as const, channelOrTicket: '#inc-prod-alerts · OPS-4824', payloadSummary: '[LOAD-TEST BURST A] PgBouncer pool saturation 98% on org_hyperion_pay' },
-      { source: 'jira.issue.created' as const, service: 'webhook-dispatcher-v2' as const, channelOrTicket: 'OPS-4822 · #tier2-customer-escalations', payloadSummary: '[LOAD-TEST BURST B] EU & APAC webhook TLS handshake timeout spike' },
-      { source: 'jira.issue.created' as const, service: 'webhook-dispatcher-v2' as const, channelOrTicket: 'OPS-4822 · #tier2-customer-escalations', payloadSummary: '[LOAD-TEST BURST B] EU & APAC webhook TLS handshake timeout spike' },
-      { source: 'github.canary.alert' as const, service: 'auth-token-gateway' as const, channelOrTicket: '#deployments-feed · OPS-4825', payloadSummary: '[LOAD-TEST BURST C] Canary dep-9048 JWK cache stampede in eu-central-1' },
-      { source: 'github.canary.alert' as const, service: 'auth-token-gateway' as const, channelOrTicket: '#deployments-feed · OPS-4825', payloadSummary: '[LOAD-TEST BURST C] Canary dep-9048 JWK cache stampede in eu-central-1' }
-    ];
-
-    const webhookResults = await Promise.all(
-      burstPayloads.map(async (p) => {
-        const dedup = computeAndRecordWebhookFingerprint(p);
-        const evt = await ingestAmbientWebhookEvent(p);
-        persistAmbientEventToSqlite({ ...evt, status: evt.approvalState });
-        return { dedup, evt };
-      })
-    );
-
-    const deduplicatedCount = webhookResults.filter((r) => r.dedup.deduplicated).length;
-    const uniqueIngested = webhookResults.length - deduplicatedCount;
-
-    const rpcTasks: { role: RBACRole; toolName: string; args: Record<string, any> }[] = [
-      { role: 'readonly_analyst', toolName: 'sql_execute_readonly_query', args: { query: 'SELECT * FROM customer_orgs' } },
-      { role: 'readonly_analyst', toolName: 'sql_execute_readonly_query', args: { query: 'DROP TABLE deployments' } },
-      { role: 'readonly_analyst', toolName: 'infra_trigger_canary_rollback', args: { deploy_id: 'dep-9042', reason: 'Analyst test' } },
-      { role: 'support_tier2', toolName: 'jira_get_ticket_context', args: { ticket_key: 'OPS-4825' } },
-      { role: 'support_tier2', toolName: 'slack_summarize_incident_thread', args: { thread_ts: '1761406210.004200' } },
-      { role: 'support_tier2', toolName: 'infra_trigger_canary_rollback', args: { deploy_id: 'dep-9048', reason: 'Support test' } },
-      { role: 'eng_lead', toolName: 'github_get_pr_diff', args: { pr_number: 1849 } },
-      { role: 'eng_lead', toolName: 'docs_get_runbook_by_service', args: { service: 'checkout-ledger-svc' } },
-      { role: 'sre_admin', toolName: 'infra_get_service_error_rate', args: { service: 'checkout-ledger-svc' } },
-      { role: 'sre_admin', toolName: 'sql_check_replication_lag', args: { cluster_name: 'auth-prod-cluster' } }
-    ];
-
-    const rpcOutcomes = await Promise.all(
-      rpcTasks.map((task) => Promise.resolve(executeMCPToolCall({ toolName: task.toolName, args: task.args, callerRole: task.role })))
-    );
-
-    const allowedSuccessCount = rpcOutcomes.filter((o) => o.status === 'SUCCESS').length;
-    const rbacDeniedCount = rpcOutcomes.filter((o) => o.status === 'RBAC_DENIED').length;
-    const sqlMutationBlockedCount = rpcOutcomes.filter((o) => o.status === 'SQL_MUTATION_BLOCKED').length;
-
-    const targetRaceEvent = await ingestAmbientWebhookEvent({
-      source: 'slack.incident.webhook',
-      service: 'checkout-ledger-svc',
-      channelOrTicket: '#sre-war-room · OPS-4824',
-      payloadSummary: `[RACE-TEST-${Date.now()}] Concurrent 4-operator approval lock verification`
-    });
-    persistAmbientEventToSqlite({ ...targetRaceEvent, status: targetRaceEvent.approvalState });
-
-    recordQuorumApprovalSignature({ eventId: targetRaceEvent.eventId, operatorId: 'ravi.kishore', callerRole: 'sre_admin' });
-    const quorum = recordQuorumApprovalSignature({ eventId: targetRaceEvent.eventId, operatorId: 'sre_oncall_dana', callerRole: 'sre_admin' });
-
-    const competingOperators = ['ravi.kishore:sre_admin', 'sre_oncall_dana:sre_admin', 'mchen:sre_admin_override', 'oncall_secondary:sre_admin'];
-
-    const approvalRaceOutcomes = await Promise.all(
-      competingOperators.map(async (operatorTag) => {
-        const acquired = acquireEventApprovalLock(targetRaceEvent.eventId, operatorTag);
-        if (!acquired) return { operatorTag, acquired: false, executed: false };
-        const exec = executeStagedApprovalBlock({ eventId: targetRaceEvent.eventId, callerRole: 'sre_admin' });
-        if (!exec.success) releaseEventApprovalLock(targetRaceEvent.eventId);
-        return { operatorTag, acquired: true, executed: exec.success };
-      })
-    );
-
-    const winnerCount = approvalRaceOutcomes.filter((o) => o.acquired && o.executed).length;
-    const blockedDuplicateCount = approvalRaceOutcomes.filter((o) => !o.acquired).length;
-
-    const chainCheck = verifyAuditHashChain();
-    const durationMs = Math.max(1, Date.now() - startMs);
-    const totalConcurrentOperations = burstPayloads.length + rpcTasks.length + competingOperators.length + 2;
-
-    const passed =
-      winnerCount === 1 &&
-      blockedDuplicateCount === competingOperators.length - 1 &&
-      quorum.quorumMet &&
-      rbacDeniedCount >= 2 &&
-      sqlMutationBlockedCount >= 1 &&
-      chainCheck.valid;
-
-    return {
-      status: passed ? 'PASSED' : 'FAILED',
-      simulationModeEnforced: true,
-      durationMs,
-      totalConcurrentOperations,
-      throughputOpsPerSec: Math.round((totalConcurrentOperations / durationMs) * 1000),
-      webhookBurst: { totalFired: burstPayloads.length, uniqueIngested, deduplicatedCount },
-      mcpRpcBurst: { totalCalls: rpcTasks.length, allowedSuccessCount, rbacDeniedCount, sqlMutationBlockedCount },
-      approvalRaceConditionTest: {
-        eventId: targetRaceEvent.eventId,
-        concurrentApprovers: competingOperators.length,
-        winnerCount,
-        blockedDuplicateCount,
-        quorumMet: quorum.quorumMet,
-        exactlyOneExecutionVerified: winnerCount === 1
-      },
-      stateIntegrity: {
-        auditHashChainValid: chainCheck.valid,
-        checkedFrames: chainCheck.verifiedRows,
-        simulationDataset: datasetSummary
-      }
-    };
+  static async runConcurrentLoadTest(
+    options: { webhookBurstSize?: number; rpcBurstSize?: number; competingApprovers?: number } = {}
+  ): Promise<LoadTestMetricsReport> {
+    const { SystemLoadStressTest } = await import('./systemLoadStressTest.ts');
+    return SystemLoadStressTest.runStressTest(options);
   }
 }
+

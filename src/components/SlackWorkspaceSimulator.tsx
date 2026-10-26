@@ -1,61 +1,75 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2, Hash, MessageSquare, Play, Send, ShieldAlert, Users } from 'lucide-react';
+import { Hash, Radio, Send, Users } from 'lucide-react';
 import { RBACRole } from '../types/monopulse.ts';
 
 interface SlackDummyUser {
-  id: string; handle: string; displayName: string; title: string;
-  role: RBACRole | 'webhook'; avatarInitials: string; status: 'online' | 'busy' | 'bot';
+  id: string;
+  handle: string;
+  displayName: string;
+  title: string;
+  role: RBACRole | 'webhook';
+  avatarInitials: string;
+  status: 'online' | 'busy' | 'bot';
 }
 
 interface SlackWorkspaceData {
-  workspaceName: string; workspaceDomain: string; activeUsersCount: number; users: SlackDummyUser[];
+  workspaceName: string;
+  workspaceDomain: string;
+  activeUsersCount: number;
+  users: SlackDummyUser[];
   threads: {
-    thread_ts: string; channel_id: string; channel_name: string; topic: string;
+    thread_ts: string;
+    channel_id: string;
+    channel_name: string;
+    topic: string;
     messages: { user: string; role: string; ts: string; text: string }[];
     linkedAmbientEvents: {
-      eventId: string; service: string; summary: string; rootCauseSynthesis: string;
-      approvalState: string; approvedByRole?: string; approvalToken: string; precomputeLatencyMs: number;
+      eventId: string;
+      service: string;
+      summary: string;
+      rootCauseSynthesis: string;
+      approvalState: string;
+      approvedByRole?: string;
+      approvalToken: string;
+      precomputeLatencyMs: number;
     }[];
   }[];
 }
 
-interface MultiUserSimulationResult {
-  scenarioName: string; allStepsPassed: boolean; testedEventId: string;
-  steps: { step: number; actor: string; role: string; action: string; expectedBehavior: string; actualOutcome: string; passed: boolean }[];
-  liveExternalConnectors: {
-    github: { configured: boolean; reachable: boolean; status: string; detail: string };
-    jira: { configured: boolean; reachable: boolean; status: string; detail: string };
-  };
+interface SlackWorkspaceSimulatorProps {
+  callerRole: RBACRole;
+  onChangeCallerRole?: (role: RBACRole) => void;
+  onRefreshSystemState: () => Promise<void>;
+  onSelectIncident?: (eventId: string) => void;
 }
 
-interface SlackWorkspaceSimulatorProps {
-  callerRole: RBACRole; onChangeCallerRole?: (role: RBACRole) => void; onRefreshSystemState: () => Promise<void>;
-}
+const CHANNEL_BRIDGES: Record<string, { platform: string; endpoint: string }> = {
+  C04INCIDENTS: { platform: 'Slack + PagerDuty Bridge', endpoint: 'events.pagerduty.com / #inc-prod-alerts' },
+  C08SUPPORT: { platform: 'MS Teams + Jira Service Desk', endpoint: 'teams.webhook.office.com / #tier2-escalations' },
+  C09SREWARROOM: { platform: 'Datadog APM + Slack Bridge', endpoint: 'api.datadoghq.com / #sre-war-room' },
+  C11DEPLOYMENTS: { platform: 'ArgoCD + GitHub Actions Feed', endpoint: 'argocd.internal / #deployments-feed' }
+};
 
 export function SlackWorkspaceSimulator({
   callerRole,
   onChangeCallerRole,
-  onRefreshSystemState
+  onRefreshSystemState,
+  onSelectIncident
 }: SlackWorkspaceSimulatorProps) {
   const [workspace, setWorkspace] = useState<SlackWorkspaceData | null>(null);
   const [selectedChannelId, setSelectedChannelId] = useState<string>('C04INCIDENTS');
   const [selectedUserHandle, setSelectedUserHandle] = useState<string>('ravi.kishore');
-  const [messageText, setMessageText] = useState<string>(
-    '[FIRING: P0] Seeing checkout-ledger-svc 5xx errors in us-east-1—can @monopulse-mcp-bot pre-compute root cause?'
-  );
+  const [messageText, setMessageText] = useState<string>('');
   const [autoPrecompute, setAutoPrecompute] = useState<boolean>(true);
   const [posting, setPosting] = useState<boolean>(false);
-  const [runningMultiUserSim, setRunningMultiUserSim] = useState<boolean>(false);
-  const [simResult, setSimResult] = useState<MultiUserSimulationResult | null>(null);
-  const [loadTestSummary, setLoadTestSummary] = useState<string | null>(null);
 
   const fetchWorkspace = async () => {
     try {
       const res = await fetch('/api/slack/workspace');
-      const data: SlackWorkspaceData = await res.json();
+      const data = await res.json();
       setWorkspace(data);
     } catch {
-      // Ignore transient error
+      // Fallback handled by empty check
     }
   };
 
@@ -63,311 +77,272 @@ export function SlackWorkspaceSimulator({
     fetchWorkspace();
   }, []);
 
-  const handleSelectPersona = (u: SlackDummyUser) => {
-    setSelectedUserHandle(u.handle);
-    if (u.role !== 'webhook' && onChangeCallerRole) onChangeCallerRole(u.role);
+  if (!workspace) {
+    return (
+      <div className="border border-[#1F2937] bg-[#111827] rounded-lg p-6 text-xs font-mono text-[#9CA3AF]">
+        Connecting to multi-channel incident workspace bridges...
+      </div>
+    );
+  }
+
+  const activeThread =
+    workspace.threads.find((t) => t.channel_id === selectedChannelId) || workspace.threads[0];
+  const activeUser =
+    workspace.users.find((u) => u.handle === selectedUserHandle) || workspace.users[0];
+  const bridgeMeta = CHANNEL_BRIDGES[activeThread.channel_id] || {
+    platform: 'Custom Webhook Bridge',
+    endpoint: 'api.monopulse.internal/bridge'
   };
 
-  const handlePostSlackMessage = async (e: React.FormEvent) => {
+  const handleSelectUserPersona = (user: SlackDummyUser) => {
+    setSelectedUserHandle(user.handle);
+    if (user.role !== 'webhook' && onChangeCallerRole) {
+      onChangeCallerRole(user.role);
+    }
+  };
+
+  const handlePostMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!messageText.trim()) return;
     setPosting(true);
     try {
-      const res = await fetch('/api/slack/messages', {
+      await fetch('/api/slack/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          channelId: selectedChannelId,
-          userHandle: selectedUserHandle,
-          text: messageText,
+          channelId: activeThread.channel_id,
+          userHandle: activeUser.handle,
+          text: messageText.trim(),
           triggerAmbientPrecompute: autoPrecompute,
-          service: selectedChannelId === 'C04SUPPORT_ESC' ? 'webhook-dispatcher-v2' : 'checkout-ledger-svc'
+          service:
+            activeThread.channel_id === 'C08SUPPORT'
+              ? 'webhook-dispatcher-v2'
+              : 'checkout-ledger-svc'
         })
       });
-      const data = await res.json();
-      if (data.workspace) setWorkspace(data.workspace);
       setMessageText('');
+      await fetchWorkspace();
       await onRefreshSystemState();
     } finally {
       setPosting(false);
     }
   };
 
-  const handleRunMultiUserScenario = async () => {
-    setRunningMultiUserSim(true);
-    try {
-      const res = await fetch('/api/slack/simulate-multiuser', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-      const data = await res.json();
-      setSimResult(data);
-      if (data.workspace) setWorkspace(data.workspace);
-      await onRefreshSystemState();
-    } finally {
-      setRunningMultiUserSim(false);
-    }
-  };
-
-  const handleRunBurstLoadTest = async () => {
-    setRunningMultiUserSim(true);
-    try {
-      const res = await fetch('/api/system/load-test', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-      const report = await res.json();
-      setLoadTestSummary(
-        `LOAD TEST ${report.status}: ${report.totalConcurrentOperations} concurrent ops in ${report.durationMs}ms (~${report.throughputOpsPerSec} ops/s) · Webhooks=${report.webhookBurst.uniqueIngested} unique / ${report.webhookBurst.deduplicatedCount} deduped · RPCs=${report.mcpRpcBurst.allowedSuccessCount} allowed / ${report.mcpRpcBurst.rbacDeniedCount} RBAC denied / ${report.mcpRpcBurst.sqlMutationBlockedCount} SQL blocked · 4-Way Approval Race Winner=${report.approvalRaceConditionTest.winnerCount} (${report.approvalRaceConditionTest.blockedDuplicateCount} blocked) · HashChain=${report.stateIntegrity.auditHashChainValid ? 'VALID' : 'BROKEN'}`
-      );
-      await fetchWorkspace();
-      await onRefreshSystemState();
-    } finally {
-      setRunningMultiUserSim(false);
-    }
-  };
-
-  if (!workspace) {
-    return (
-      <div className="border border-[#1F2937] bg-[#111827] p-4 rounded-lg text-xs font-mono text-[#9CA3AF]">
-        Loading Dummy Slack Workspace (`monopulse-prod.slack.com`)...
-      </div>
-    );
-  }
-
-  const activeThread = workspace.threads.find((t) => t.channel_id === selectedChannelId) || workspace.threads[0];
-  const humanUsers = workspace.users.filter((u) => u.role !== 'webhook');
-
   return (
-    <div className="border border-[#2563EB]/50 bg-[#111827] rounded-lg p-5 space-y-5">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-[#1F2937] pb-4">
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#1F2937] pb-4">
         <div>
-          <div className="flex items-center gap-2">
-            <MessageSquare className="w-4 h-4 text-[#2563EB]" />
-            <h2 className="text-sm font-bold text-[#F9FAFB] font-display">
-              Interactive Multi-User Slack Workspace Simulator ({workspace.workspaceDomain})
-            </h2>
-          </div>
+          <h1 className="text-xl font-semibold text-[#F9FAFB] font-display">
+            Unified Operations Workspace
+          </h1>
           <p className="text-xs text-[#9CA3AF] mt-1">
-            Pre-populated with 6 dummy team personas across 4 RBAC tiers and live incident channels so you can test multi-user Slack workflows and burst load resilience.
+            Cross-platform incident war rooms synchronizing Slack, Microsoft Teams, PagerDuty, Datadog, and ArgoCD event streams.
           </p>
         </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={handleRunBurstLoadTest}
-            disabled={runningMultiUserSim}
-            className="px-3.5 py-2 border border-[#D97706] bg-[#D97706]/15 hover:bg-[#D97706]/25 text-[#F9FAFB] text-xs font-mono font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap disabled:opacity-50"
-          >
-            {runningMultiUserSim ? 'Running Burst...' : 'Run Concurrent Burst Load Test'}
-          </button>
-          <button
-            onClick={handleRunMultiUserScenario}
-            disabled={runningMultiUserSim}
-            className="px-4 py-2 bg-[#16A34A] hover:bg-green-500 text-white text-xs font-semibold rounded-md transition-colors flex items-center gap-2 cursor-pointer whitespace-nowrap disabled:opacity-50"
-          >
-            <Play className="w-3.5 h-3.5" />
-            <span>{runningMultiUserSim ? 'Running...' : 'Run 5-User Concurrency & Live API Verification'}</span>
-          </button>
+        <div className="flex items-center gap-2 text-xs text-[#9CA3AF]">
+          <Radio className="w-3.5 h-3.5 text-[#16A34A]" />
+          <span>4 Connected Channel Bridges</span>
+          <span>·</span>
+          <span className="font-mono">{workspace.users.length} On-Call Responders</span>
         </div>
       </div>
 
-      {loadTestSummary && (
-        <div className="p-3 rounded-md border border-[#D97706]/60 bg-[#0B0F17] text-xs font-mono text-[#F9FAFB]">
-          {loadTestSummary}
-        </div>
-      )}
-
-      {simResult && (
-        <div className="border border-[#16A34A]/60 bg-[#0B0F17] rounded-lg p-4 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#1F2937] pb-2.5">
-            <div className="flex items-center gap-2 text-xs font-mono font-semibold text-[#16A34A]">
-              <CheckCircle2 className="w-4 h-4" />
-              <span>
-                {simResult.scenarioName} · {simResult.allStepsPassed ? 'ALL 5 MULTI-USER GATES PASSED' : 'PARTIAL'}
-              </span>
-            </div>
-            <div className="text-[11px] font-mono text-[#9CA3AF]">
-              Event: {simResult.testedEventId} · Active Role: {callerRole}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
-            <div className="p-2.5 rounded border border-[#1F2937] bg-[#111827] flex items-center justify-between">
+      <div className="border border-[#1F2937] bg-[#111827] rounded-lg overflow-hidden">
+        <div className="grid grid-cols-1 lg:grid-cols-12 min-h-[560px]">
+          <div className="lg:col-span-3 border-b lg:border-b-0 lg:border-r border-[#1F2937] bg-[#0B0F17] p-4 flex flex-col justify-between space-y-6">
+            <div className="space-y-5">
               <div>
-                <div className="text-[#9CA3AF]">GitHub Live API (Ravikishore710)</div>
-                <div className="text-[#F9FAFB] text-[11px] mt-0.5">{simResult.liveExternalConnectors.github.detail}</div>
+                <div className="text-xs font-semibold text-[#9CA3AF] mb-2">
+                  Bridged Channels ({workspace.threads.length})
+                </div>
+                <div className="space-y-1">
+                  {workspace.threads.map((t) => {
+                    const active = t.channel_id === activeThread.channel_id;
+                    const meta = CHANNEL_BRIDGES[t.channel_id];
+                    return (
+                      <button
+                        key={t.channel_id}
+                        onClick={() => setSelectedChannelId(t.channel_id)}
+                        className={`w-full text-left px-3 py-2 rounded-md text-xs transition-colors cursor-pointer ${
+                          active
+                            ? 'bg-[#2563EB] text-white'
+                            : 'text-[#9CA3AF] hover:bg-[#111827] hover:text-[#F9FAFB]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between font-mono">
+                          <span className="flex items-center gap-1.5 truncate font-semibold">
+                            <Hash className="w-3.5 h-3.5 shrink-0" />
+                            <span className="truncate">{t.channel_name.replace('#', '')}</span>
+                          </span>
+                          <span className="tabular-nums">{t.messages.length}</span>
+                        </div>
+                        {meta && (
+                          <div className={`text-[11px] mt-0.5 truncate ${active ? 'text-blue-100' : 'text-[#9CA3AF]'}`}>
+                            {meta.platform}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-              <span className="text-[#16A34A] font-semibold">{simResult.liveExternalConnectors.github.status}</span>
+
+              <div className="pt-4 border-t border-[#1F2937]">
+                <div className="flex items-center justify-between text-xs font-semibold text-[#9CA3AF] mb-2">
+                  <span>Active Operator Persona</span>
+                  <Users className="w-3.5 h-3.5" />
+                </div>
+                <div className="space-y-1.5">
+                  {workspace.users
+                    .filter((u) => u.role !== 'webhook')
+                    .map((u) => {
+                      const active = u.handle === activeUser.handle;
+                      return (
+                        <button
+                          key={u.id}
+                          onClick={() => handleSelectUserPersona(u)}
+                          className={`w-full text-left p-2 rounded-md border transition-colors cursor-pointer ${
+                            active
+                              ? 'bg-[#111827] border-[#2563EB] text-[#F9FAFB]'
+                              : 'bg-[#0B0F17] border-[#1F2937] text-[#9CA3AF] hover:border-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-semibold text-[#F9FAFB] truncate">{u.displayName}</span>
+                            <span className="font-mono text-[11px] text-[#2563EB]">{u.role}</span>
+                          </div>
+                          <div className="text-[11px] text-[#9CA3AF] truncate">
+                            @{u.handle} · {u.title}
+                          </div>
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
             </div>
-            <div className="p-2.5 rounded border border-[#1F2937] bg-[#111827] flex items-center justify-between">
+
+            <div className="pt-3 border-t border-[#1F2937] text-[11px] font-mono text-[#9CA3AF] space-y-1">
+              <div>Posting As: @{activeUser.handle}</div>
+              <div>RBAC Role: {callerRole}</div>
+            </div>
+          </div>
+
+          <div className="lg:col-span-9 flex flex-col justify-between bg-[#0E131F]">
+            <div className="px-5 py-3.5 border-b border-[#1F2937] bg-[#111827] flex flex-wrap items-center justify-between gap-2">
               <div>
-                <div className="text-[#9CA3AF]">Atlassian Jira Cloud Live API</div>
-                <div className="text-[#F9FAFB] text-[11px] mt-0.5">{simResult.liveExternalConnectors.jira.detail}</div>
+                <div className="text-sm font-semibold text-[#F9FAFB] font-mono flex items-center gap-2">
+                  <span>{activeThread.channel_name}</span>
+                  <span className="text-xs font-normal text-[#9CA3AF]">· {bridgeMeta.platform}</span>
+                </div>
+                <div className="text-xs text-[#9CA3AF]">{activeThread.topic}</div>
               </div>
-              <span className="text-[#16A34A] font-semibold">{simResult.liveExternalConnectors.jira.status}</span>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-[#1F2937] text-[#9CA3AF] font-mono">
-                  <th className="py-1.5 pr-3">Step</th>
-                  <th className="py-1.5 pr-3">Slack User</th>
-                  <th className="py-1.5 pr-3">RBAC Role</th>
-                  <th className="py-1.5 pr-3">Simulated Action</th>
-                  <th className="py-1.5 pr-3">Actual Engine Outcome</th>
-                  <th className="py-1.5">Verdict</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#1F2937]/60 font-mono text-[11px]">
-                {simResult.steps.map((s) => (
-                  <tr key={s.step}>
-                    <td className="py-2 pr-3 text-[#9CA3AF]">#{s.step}</td>
-                    <td className="py-2 pr-3 text-[#F9FAFB] font-semibold">{s.actor}</td>
-                    <td className="py-2 pr-3 text-[#2563EB]">{s.role}</td>
-                    <td className="py-2 pr-3 text-[#9CA3AF] font-sans">{s.action}</td>
-                    <td className="py-2 pr-3 text-[#F9FAFB]">{s.actualOutcome}</td>
-                    <td className="py-2">
-                      <span className={s.passed ? 'text-[#16A34A] font-semibold' : 'text-[#DC2626]'}>
-                        {s.passed ? 'PASS' : 'FAIL'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <div className="lg:col-span-4 border border-[#1F2937] bg-[#0B0F17] rounded-md p-3.5 space-y-4">
-          <div>
-            <div className="text-[11px] font-mono uppercase text-[#9CA3AF] mb-2">Slack Channels ({workspace.threads.length})</div>
-            <div className="space-y-1">
-              {workspace.threads.map((t) => (
-                <button
-                  key={t.channel_id}
-                  onClick={() => setSelectedChannelId(t.channel_id)}
-                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded text-xs font-mono transition-colors cursor-pointer ${
-                    selectedChannelId === t.channel_id
-                      ? 'bg-[#2563EB] text-white font-semibold'
-                      : 'text-[#9CA3AF] hover:bg-[#111827] hover:text-[#F9FAFB]'
-                  }`}
-                >
-                  <span className="flex items-center gap-1.5 truncate">
-                    <Hash className="w-3.5 h-3.5 shrink-0" />
-                    <span className="truncate">{t.channel_name.replace(/^#/, '')}</span>
-                  </span>
-                  <span className="text-[11px] opacity-80">{t.messages.length} msgs</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="pt-3 border-t border-[#1F2937]">
-            <div className="flex items-center justify-between text-[11px] font-mono uppercase text-[#9CA3AF] mb-2">
-              <span className="flex items-center gap-1.5">
-                <Users className="w-3.5 h-3.5" />
-                <span>Switch Active Slack User</span>
-              </span>
-              <span>RBAC Sync</span>
-            </div>
-            <div className="space-y-1.5">
-              {humanUsers.map((u) => {
-                const active = selectedUserHandle === u.handle;
-                return (
-                  <button
-                    key={u.id}
-                    onClick={() => handleSelectPersona(u)}
-                    className={`w-full text-left p-2 rounded border transition-colors cursor-pointer ${
-                      active
-                        ? 'border-[#2563EB] bg-[#111827] text-[#F9FAFB]'
-                        : 'border-[#1F2937] bg-[#0E131F] text-[#9CA3AF] hover:border-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between text-xs font-mono">
-                      <span className="font-semibold text-[#F9FAFB]">@{u.handle}</span>
-                      <span className="text-[10px] text-[#16A34A]">● {u.role}</span>
-                    </div>
-                    <div className="text-[11px] text-[#9CA3AF] truncate">
-                      {u.displayName} · {u.title}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        <div className="lg:col-span-8 border border-[#1F2937] bg-[#0B0F17] rounded-md p-4 flex flex-col justify-between space-y-4">
-          <div className="space-y-3">
-            <div className="border-b border-[#1F2937] pb-2.5 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-xs font-mono font-bold text-[#F9FAFB]">{activeThread.channel_name}</div>
-                <div className="text-[11px] text-[#9CA3AF]">{activeThread.topic}</div>
+              <div className="text-xs font-mono text-[#9CA3AF]">
+                {bridgeMeta.endpoint}
               </div>
-              <span className="text-[11px] font-mono text-[#2563EB]">
-                Posting as @{selectedUserHandle} ({callerRole})
-              </span>
             </div>
 
-            <div className="space-y-2.5 max-h-[270px] overflow-y-auto pr-1">
+            <div className="p-5 space-y-3 max-h-[420px] overflow-y-auto">
               {activeThread.messages.map((m, idx) => {
-                const isBot = m.user.includes('bot') || m.role === 'webhook';
+                const userMeta = workspace.users.find((u) => u.handle === m.user);
                 return (
                   <div
                     key={`${m.ts}-${idx}`}
-                    className={`p-3 rounded border text-xs space-y-1 ${
-                      isBot
-                        ? 'border-[#2563EB]/50 bg-[#111827]'
-                        : 'border-[#1F2937] bg-[#0E131F]'
-                    }`}
+                    className="p-3.5 rounded-md bg-[#0B0F17] border border-[#1F2937] space-y-1"
                   >
-                    <div className="flex items-center justify-between font-mono text-[11px]">
+                    <div className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-[#F9FAFB]">@{m.user}</span>
-                        <span className="text-[#9CA3AF]">[{m.role}]</span>
+                        <span className="font-semibold text-[#F9FAFB]">
+                          {userMeta?.displayName || m.user}
+                        </span>
+                        <span className="font-mono text-[#9CA3AF]">@{m.user}</span>
+                        <span className="font-mono text-[#2563EB]">{m.role}</span>
                       </div>
-                      <span className="text-[#9CA3AF] tabular-nums">ts: {m.ts}</span>
+                      <span className="font-mono text-[#9CA3AF] tabular-nums">{m.ts}</span>
                     </div>
-                    <div className="text-[#F9FAFB] leading-relaxed">{m.text}</div>
+                    <p className="text-xs text-[#F9FAFB]/90 leading-relaxed">{m.text}</p>
                   </div>
                 );
               })}
-            </div>
-          </div>
 
-          <form onSubmit={handlePostSlackMessage} className="pt-3 border-t border-[#1F2937] space-y-2.5">
-            <div className="flex items-center justify-between text-xs">
-              <label className="flex items-center gap-2 text-[#9CA3AF] cursor-pointer">
+              {activeThread.linkedAmbientEvents.length > 0 && (
+                <div className="pt-2 space-y-2.5">
+                  <div className="text-xs font-mono text-[#9CA3AF]">
+                    Pre-Computed Incidents Linked to {activeThread.channel_name}:
+                  </div>
+                  {activeThread.linkedAmbientEvents.map((evt) => (
+                    <div
+                      key={evt.eventId}
+                      className="p-4 rounded-md bg-[#111827] border border-[#2563EB]/60 space-y-2"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+                        <span className="text-[#F9FAFB] font-semibold">
+                          {evt.eventId} · {evt.service}
+                        </span>
+                        <div className="flex items-center gap-3">
+                          <span
+                            className={
+                              evt.approvalState === 'STAGED_1CLICK_READY'
+                                ? 'text-[#D97706]'
+                                : 'text-[#16A34A]'
+                            }
+                          >
+                            {evt.approvalState}
+                          </span>
+                          {onSelectIncident && (
+                            <button
+                              onClick={() => onSelectIncident(evt.eventId)}
+                              className="text-[#2563EB] hover:underline cursor-pointer"
+                            >
+                              Open in Incidents →
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-xs text-[#9CA3AF]">{evt.rootCauseSynthesis}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <form
+              onSubmit={handlePostMessage}
+              className="p-4 border-t border-[#1F2937] bg-[#111827] space-y-2.5"
+            >
+              <div className="flex items-center justify-between text-xs text-[#9CA3AF]">
+                <span>
+                  Posting to <strong className="text-[#F9FAFB]">{activeThread.channel_name}</strong> ({bridgeMeta.platform}) as{' '}
+                  <strong className="text-[#F9FAFB]">{activeUser.displayName}</strong>
+                </span>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoPrecompute}
+                    onChange={(e) => setAutoPrecompute(e.target.checked)}
+                    className="rounded border-[#1F2937]"
+                  />
+                  <span>Auto-trigger incident diagnostics on post</span>
+                </label>
+              </div>
+              <div className="flex gap-2">
                 <input
-                  type="checkbox"
-                  checked={autoPrecompute}
-                  onChange={(e) => setAutoPrecompute(e.target.checked)}
-                  className="rounded border-[#1F2937]"
+                  type="text"
+                  value={messageText}
+                  onChange={(e) => setMessageText(e.target.value)}
+                  placeholder={`Message ${activeThread.channel_name} as @${activeUser.handle}...`}
+                  className="flex-1 bg-[#0B0F17] border border-[#1F2937] rounded-md px-3 py-2 text-xs text-[#F9FAFB]"
                 />
-                <span>Auto-trigger @monopulse-mcp-bot Ambient Pre-Computation &amp; 1-Click Block</span>
-              </label>
-              <span className="text-[11px] font-mono text-[#9CA3AF] flex items-center gap-1">
-                <ShieldAlert className="w-3 h-3 text-[#2563EB]" />
-                Multi-Tab SSE Sync Active
-              </span>
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={messageText}
-                onChange={(e) => setMessageText(e.target.value)}
-                placeholder={`Message ${activeThread.channel_name} as @${selectedUserHandle}...`}
-                className="flex-1 bg-[#111827] border border-[#1F2937] rounded-md px-3 py-2 text-xs text-[#F9FAFB]"
-              />
-              <button
-                type="submit"
-                disabled={posting}
-                className="px-4 py-2 bg-[#2563EB] hover:bg-blue-500 text-white text-xs font-semibold rounded-md flex items-center gap-1.5 cursor-pointer whitespace-nowrap disabled:opacity-50"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>{posting ? 'Posting...' : 'Post to Slack'}</span>
-              </button>
-            </div>
-          </form>
+                <button
+                  type="submit"
+                  disabled={posting || !messageText.trim()}
+                  className="px-4 py-2 bg-[#2563EB] hover:bg-blue-500 text-white text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{posting ? 'Sending...' : 'Send Message'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
     </div>

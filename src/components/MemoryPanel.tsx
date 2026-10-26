@@ -69,14 +69,23 @@ export function MemoryPanel({
     }
   };
 
+  const handlePlaybookVote = async (playbookId: string, vote: 'up' | 'down') => {
+    await fetch(`/api/memory/playbooks/${playbookId}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vote })
+    });
+    await onRefreshState();
+  };
+
   return (
     <div className="space-y-6">
       <div className="border-b border-[#1F2937] pb-4">
         <h1 className="text-xl font-bold text-[#F9FAFB] font-display">
-          03. Two-Tier Shared Memory (pgvector + Redis) &amp; Kaggle GPU Playbook Extractor
+          Operational Runbooks &amp; Playbook Library
         </h1>
         <p className="text-xs text-[#9CA3AF] mt-1">
-          Distills successful multi-step agent trajectories into reusable Markdown skills on Kaggle GPU and dynamically injects them into the system prompt via cosine similarity—reducing steps-to-completion by {avgStepReductionPct}%.
+          Semantic pgvector playbook retrieval, Tier-1 Redis session context, and automated runbook distillation from resolved incident trajectories.
         </p>
       </div>
 
@@ -265,10 +274,24 @@ export function MemoryPanel({
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
                   <span className="text-[#2563EB] font-semibold">{pb.id}</span>
-                  <span className="tabular-nums text-[#16A34A]">
-                    Steps: {pb.baselineStepsWithoutPlaybook} → {pb.distilledStepsWithPlaybook} (-
-                    {pb.stepReductionPct}%) · Used {pb.usageCount}x
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="tabular-nums text-[#16A34A]">
+                      Steps: {pb.baselineStepsWithoutPlaybook} → {pb.distilledStepsWithPlaybook} (-
+                      {pb.stepReductionPct}%) · Used {pb.usageCount}x
+                    </span>
+                    <button
+                      onClick={() => handlePlaybookVote(pb.id, 'up')}
+                      className="px-2 py-0.5 rounded border border-[#1F2937] bg-[#111827] hover:border-emerald-500 text-[11px] text-[#9CA3AF] hover:text-emerald-400 cursor-pointer"
+                    >
+                      Upvote
+                    </button>
+                    <button
+                      onClick={() => handlePlaybookVote(pb.id, 'down')}
+                      className="px-2 py-0.5 rounded border border-[#1F2937] bg-[#111827] hover:border-amber-500 text-[11px] text-[#9CA3AF] hover:text-amber-400 cursor-pointer"
+                    >
+                      Downvote
+                    </button>
+                  </div>
                 </div>
                 <div className="text-sm font-semibold text-[#F9FAFB]">{pb.title}</div>
                 <div className="text-xs font-mono text-[#9CA3AF]">
