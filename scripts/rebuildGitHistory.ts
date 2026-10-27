@@ -53,6 +53,7 @@ const trackedFiles = [
   'scripts/smoke-test.sh',
   'vitest.config.ts',
   'package.json',
+  'package-lock.json',
   '.env.example',
   '.github/workflows/ci.yml',
   '.github/dependabot.yml',
@@ -405,6 +406,7 @@ commit(
 fs.writeFileSync('scripts/smoke-test.sh', snapshots['scripts/smoke-test.sh']);
 fs.chmodSync('scripts/smoke-test.sh', 0o755);
 fs.writeFileSync('package.json', snapshots['package.json']);
+fs.writeFileSync('package-lock.json', snapshots['package-lock.json']);
 fs.writeFileSync('.env.example', snapshots['.env.example']);
 fs.writeFileSync('.github/workflows/ci.yml', snapshots['.github/workflows/ci.yml']);
 fs.writeFileSync('.github/dependabot.yml', snapshots['.github/dependabot.yml']);
