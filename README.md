@@ -1,6 +1,10 @@
 # MonoPulse — Autonomous Internal Operations Monoagent & MCP Ecosystem
 
-[![CI Pipeline](https://github.com/Ravikishore710/monopulse-mcp-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Ravikishore710/monopulse-mcp-engine/actions)
+[![CI Pipeline](https://github.com/Ravikishore710/monopulse--mcp-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Ravikishore710/monopulse--mcp-engine/actions)
+[![Dependabot Enabled](https://img.shields.io/badge/Dependabot-weekly-025E8C?logo=dependabot)](./.github/dependabot.yml)
+[![Renovate Enabled](https://img.shields.io/badge/Renovate-pinned-1A1F6C?logo=renovatebot)](./renovate.json)
+
+> **Maintenance & Dependency Audit Policy**: Dependencies in `package.json` are pinned to exact versions and audited on every push via `npm audit --audit-level=high` in [`.github/workflows/ci.yml`](./.github/workflows/ci.yml). Automated weekly dependency & GitHub Actions updates are configured in [`.github/dependabot.yml`](./.github/dependabot.yml) and [`renovate.json`](./renovate.json). See [`CONTRIBUTING.md`](./CONTRIBUTING.md) and [`CHANGELOG.md`](./CHANGELOG.md) for release history (`v1.0.0` – `v1.5.0`).
 
 MonoPulse is an autonomous organizational operations monoagent and **Model Context Protocol (MCP `2024-11-05`)** runtime wired into internal SQLite/PostgreSQL databases, GitHub, Slack, Jira, and engineering documentation.
 

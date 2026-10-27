@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2, ChevronDown, ChevronUp, Play, Plus, Radio, Search, Sliders, Trash2, Zap } from 'lucide-react';
 import { DEFAULT_TOOL_ARGS, MCPServerMetadata, MCPToolDefinition, RBACRole } from '../types/monopulse.ts';
+import { executeJsonRequest, useApiAction } from '../hooks/useApiAction.ts';
+import { THEME } from '../theme.ts';
 
 interface CustomIntegrationItem {
   id: string;
@@ -67,13 +69,11 @@ export function McpPanel({
   const [toolSearchQuery, setToolSearchQuery] = useState<string>('');
   const [selectedToolName, setSelectedToolName] = useState<string>('sql_execute_readonly_query');
   const [rpcArgsText, setRpcArgsText] = useState<string>(JSON.stringify(DEFAULT_TOOL_ARGS['sql_execute_readonly_query'], null, 2));
-  const [rpcResponse, setRpcResponse] = useState<any>(null);
-  const [executingRpc, setExecutingRpc] = useState(false);
+  const { data: rpcResponse, setData: setRpcResponse, loading: executingRpc, runAction: runRpcAction } = useApiAction<any>();
 
   const loadIntegrations = async () => {
     try {
-      const res = await fetch('/api/integrations');
-      const data = await res.json();
+      const { data } = await executeJsonRequest<{ integrations?: CustomIntegrationItem[] }>('/api/integrations');
       if (Array.isArray(data.integrations)) setIntegrations(data.integrations);
     } catch (err: unknown) {
       setActionBanner(err instanceof Error ? err.message : 'Unable to load integrations');
@@ -85,10 +85,9 @@ export function McpPanel({
   const handleCreateIntegration = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newIntName.trim()) return;
-    const res = await fetch('/api/integrations', {
+    const { ok } = await executeJsonRequest('/api/integrations', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      body: {
         name: newIntName.trim(),
         provider: newIntProvider.trim() || newIntName.trim(),
         category: newIntCategory,
@@ -96,9 +95,9 @@ export function McpPanel({
         endpointUrl: newIntEndpoint.trim(),
         authMethod: 'HMAC-SHA256 Secret',
         mappedService: newIntService
-      })
+      }
     });
-    if (res.ok) {
+    if (ok) {
       setNewIntName('');
       setNewIntProvider('');
       setShowAddModal(false);
@@ -108,22 +107,19 @@ export function McpPanel({
   };
 
   const handleTestIntegration = async (id: string) => {
-    const res = await fetch(`/api/integrations/${id}/test`, { method: 'POST' });
-    const data = await res.json();
-    if (res.ok) {
+    const { ok, data } = await executeJsonRequest(`/api/integrations/${id}/test`, { method: 'POST' });
+    if (ok) {
       setActionBanner(`Verified ${data.name} (${data.protocol}) · ${data.latencyMs}ms · Signature OK`);
       await loadIntegrations();
     }
   };
 
   const handleTriggerIntegrationIncident = async (id: string) => {
-    const res = await fetch(`/api/integrations/${id}/trigger`, {
+    const { ok, data } = await executeJsonRequest(`/api/integrations/${id}/trigger`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
+      body: {}
     });
-    const data = await res.json();
-    if (res.ok && data.event?.eventId) {
+    if (ok && data.event?.eventId) {
       await onRefreshState();
       setActionBanner(`Ingested incident ${data.event.eventId} from ${data.integration.name}`);
       if (onNavigateToIncident) onNavigateToIncident(data.event.eventId);
@@ -149,7 +145,6 @@ export function McpPanel({
   };
 
   const handleDispatchMCPTool = async (customTool?: string, customArgs?: Record<string, any>, customRole?: RBACRole) => {
-    setExecutingRpc(true);
     const toolToCall = customTool || selectedToolName;
     const roleToUse = customRole || callerRole;
     let parsedArgs: any = customArgs;
@@ -160,7 +155,6 @@ export function McpPanel({
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : 'Invalid JSON';
         setRpcResponse({ status: 'JSON_PARSE_ERROR', httpCode: 400, error: { message: `JSON Syntax Error: ${msg}` } });
-        setExecutingRpc(false);
         return;
       }
     } else {
@@ -169,24 +163,18 @@ export function McpPanel({
       if (customRole) onChangeCallerRole(customRole);
     }
 
-    try {
-      const res = await fetch('/api/mcp/rpc', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/call', params: { name: toolToCall, arguments: parsedArgs, callerRole: roleToUse } })
-      });
-      setRpcResponse(await res.json());
-      await onRefreshState();
-    } finally {
-      setExecutingRpc(false);
-    }
+    await runRpcAction('/api/mcp/rpc', {
+      method: 'POST',
+      body: { jsonrpc: '2.0', method: 'tools/call', params: { name: toolToCall, arguments: parsedArgs, callerRole: roleToUse } }
+    });
+    await onRefreshState();
   };
 
   const visibleIntegrations = integrations.filter((i) => categoryFilter === 'All' || i.category === categoryFilter);
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#1F2937] pb-4">
+      <div className={`flex flex-col md:flex-row md:items-center justify-between gap-4 ${THEME.HEADER_BORDER}`}>
         <div>
           <h1 className="text-lg font-semibold tracking-tight text-[#F9FAFB] font-display">Integrations &amp; Custom Connector Hub</h1>
           <p className="text-xs text-[#9CA3AF] mt-0.5">
@@ -195,7 +183,7 @@ export function McpPanel({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1 p-1 bg-[#111827] border border-[#1F2937] rounded-lg">
+          <div className={`flex items-center gap-1 p-1 ${THEME.SURFACE_CARD}`}>
             <button onClick={() => setActiveView('connectors')} className={`px-3 py-1.5 text-xs font-medium rounded cursor-pointer flex items-center gap-1.5 ${activeView === 'connectors' ? 'bg-[#2563EB] text-white' : 'text-[#9CA3AF] hover:text-[#F9FAFB]'}`}>
               <Radio className="w-3.5 h-3.5" /><span>Connected Platforms ({integrations.length})</span>
             </button>
