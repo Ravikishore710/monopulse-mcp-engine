@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { CheckCircle2, ChevronDown, ChevronUp, Download, Lock, Play, RefreshCw, Terminal, Wrench } from 'lucide-react';
 import { MCPWireFrame, RBACRole } from '../types/monopulse.ts';
 import { CliPanel } from './CliPanel.tsx';
+import { executeJsonRequest, useApiAction } from '../hooks/useApiAction.ts';
+import { THEME } from '../theme.ts';
 
 interface AuditData {
   sqliteDatabase: {
@@ -49,7 +51,7 @@ export function TrustAuditPanel({
   onRefreshState
 }: TrustAuditPanelProps) {
   const [subTab, setSubTab] = useState<'ledger' | 'cli' | 'sandbox'>('ledger');
-  const [auditData, setAuditData] = useState<AuditData | null>(null);
+  const { data: auditData, loading: loadingAudit, runAction: runLoadAudit } = useApiAction<AuditData>();
   const [showConnectorDetails, setShowConnectorDetails] = useState<boolean>(false);
   const [sqlQuery, setSqlQuery] = useState<string>(
     'SELECT d.deploy_id, d.service, d.status, i.error_rate_pct, i.p99_latency_ms FROM deployments d JOIN service_incidents i ON d.service = i.service'
@@ -57,26 +59,17 @@ export function TrustAuditPanel({
   const [sqlResult, setSqlResult] = useState<Record<string, any> | null>(null);
   const [cryptoTestResult, setCryptoTestResult] = useState<Record<string, any> | null>(null);
   const [hashChainCheck, setHashChainCheck] = useState<Record<string, any> | null>(null);
-  const [loadingAudit, setLoadingAudit] = useState(false);
 
   const [webhookSource, setWebhookSource] = useState<'slack.incident.webhook' | 'jira.issue.created' | 'github.canary.alert'>('slack.incident.webhook');
   const [webhookService, setWebhookService] = useState<'checkout-ledger-svc' | 'webhook-dispatcher-v2'>('checkout-ledger-svc');
   const [webhookSummary, setWebhookSummary] = useState<string>(
     '[FIRING: P0] checkout-ledger-svc 5xx error spike (14.8%) & PgBouncer saturation (98%) after canary dep-9042 rollout.'
   );
-  const [sandboxReport, setSandboxReport] = useState<Record<string, any> | null>(null);
-  const [runningSandboxTask, setRunningSandboxTask] = useState(false);
+  const { data: sandboxReport, loading: runningSandboxTask, runAction: runStressAction } = useApiAction<Record<string, any>>();
 
   const loadAuditState = async () => {
-    setLoadingAudit(true);
-    try {
-      const res = await fetch('/api/security/audit');
-      const data = await res.json();
-      setAuditData(data);
-      if (data.hashChainIntegrity) setHashChainCheck(data.hashChainIntegrity);
-    } finally {
-      setLoadingAudit(false);
-    }
+    const data = await runLoadAudit('/api/security/audit');
+    if (data?.hashChainIntegrity) setHashChainCheck(data.hashChainIntegrity);
   };
 
   useEffect(() => {
@@ -84,35 +77,33 @@ export function TrustAuditPanel({
   }, []);
 
   const handleRunLiveSqliteQuery = async () => {
-    const res = await fetch('/api/mcp/rpc', {
+    const { data } = await executeJsonRequest('/api/mcp/rpc', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      body: {
         jsonrpc: '2.0',
         method: 'tools/call',
         params: { name: 'sql_execute_readonly_query', arguments: { query: sqlQuery, row_limit: 20 }, callerRole }
-      })
+      }
     });
-    setSqlResult(await res.json());
+    setSqlResult(data);
     await loadAuditState();
   };
 
   const handleVerifyHashChain = async () => {
-    const res = await fetch('/api/security/hash-chain/verify');
-    setHashChainCheck(await res.json());
+    const { data } = await executeJsonRequest('/api/security/hash-chain/verify');
+    setHashChainCheck(data);
   };
 
   const handleTestHmacVerification = async (simulateTamper: boolean) => {
-    const res = await fetch('/api/security/verify-signature', {
+    const { data } = await executeJsonRequest('/api/security/verify-signature', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      body: {
         toolName: 'infra_trigger_canary_rollback',
         args: { deploy_id: 'dep-9042', reason: 'Verified SRE rollback' },
         tamperArgs: simulateTamper ? { deploy_id: 'dep-9041-UNAUTHORIZED', reason: 'Tampered payload after approval' } : undefined
-      })
+      }
     });
-    setCryptoTestResult(await res.json());
+    setCryptoTestResult(data);
   };
 
   const handleExportAuditLog = async (format: 'json' | 'csv') => {
@@ -131,32 +122,25 @@ export function TrustAuditPanel({
   };
 
   const handleRunLoadTest = async () => {
-    setRunningSandboxTask(true);
-    try {
-      const res = await fetch('/api/system/stress-test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ webhookBurstSize: 8, rpcBurstSize: 16, competingApprovers: 6 })
-      });
-      setSandboxReport(await res.json());
-      if (onRefreshState) await onRefreshState();
-      await loadAuditState();
-    } finally {
-      setRunningSandboxTask(false);
-    }
+    await runStressAction('/api/system/stress-test', {
+      method: 'POST',
+      body: { webhookBurstSize: 8, rpcBurstSize: 16, competingApprovers: 6 }
+    });
+    if (onRefreshState) await onRefreshState();
+    await loadAuditState();
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#1F2937] pb-4">
+      <div className={`flex flex-col md:flex-row md:items-center justify-between gap-4 ${THEME.HEADER_BORDER}`}>
         <div>
-          <h1 className="text-xl font-bold text-[#F9FAFB] font-display">Compliance Audit, CLI &amp; System Settings</h1>
-          <p className="text-xs text-[#9CA3AF] mt-1">
+          <h1 className={THEME.TITLE_H1}>Compliance Audit, CLI &amp; System Settings</h1>
+          <p className={THEME.TEXT_SUBTITLE}>
             Executive compliance posture, SHA-256 Merkle audit verification, relational SQLite console, and Developer Sandbox.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <div className="flex items-center gap-1 p-1 bg-[#111827] border border-[#1F2937] rounded-lg">
+          <div className={`flex items-center gap-1 p-1 ${THEME.SURFACE_CARD}`}>
             {([
               { id: 'ledger', label: 'Audit & Storage', Icon: Lock },
               { id: 'cli', label: 'CLI & Wire Log', Icon: Terminal },
@@ -174,11 +158,11 @@ export function TrustAuditPanel({
               </button>
             ))}
           </div>
-          <button onClick={() => handleExportAuditLog('json')} className="px-3 py-1.5 text-xs font-medium border border-[#1F2937] bg-[#111827] text-[#F9FAFB] rounded-md hover:border-slate-600 cursor-pointer flex items-center gap-1.5">
+          <button onClick={() => handleExportAuditLog('json')} className={`px-3 py-1.5 text-xs font-medium ${THEME.SURFACE_CARD} text-[#F9FAFB] hover:border-slate-600 cursor-pointer flex items-center gap-1.5`}>
             <Download className="w-3.5 h-3.5" />
             <span>JSON</span>
           </button>
-          <button onClick={() => handleExportAuditLog('csv')} className="px-3 py-1.5 text-xs font-medium border border-[#1F2937] bg-[#111827] text-[#F9FAFB] rounded-md hover:border-slate-600 cursor-pointer flex items-center gap-1.5">
+          <button onClick={() => handleExportAuditLog('csv')} className={`px-3 py-1.5 text-xs font-medium ${THEME.SURFACE_CARD} text-[#F9FAFB] hover:border-slate-600 cursor-pointer flex items-center gap-1.5`}>
             <Download className="w-3.5 h-3.5" />
             <span>CSV</span>
           </button>
@@ -195,10 +179,10 @@ export function TrustAuditPanel({
 
       {subTab === 'sandbox' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-6 border border-[#1F2937] bg-[#111827] p-5 rounded-lg space-y-4">
+          <div className={`lg:col-span-6 ${THEME.SURFACE_CARD_P5} space-y-4`}>
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-sm font-semibold text-[#F9FAFB]">Safe Sandbox &amp; Simulation Mode</h2>
+                <h2 className={THEME.TITLE_H2}>Safe Sandbox &amp; Simulation Mode</h2>
                 <p className="text-xs text-[#9CA3AF]">Isolate Slack, Jira, and GitHub connectors from live production side effects.</p>
               </div>
               {onToggleSimulationMode && (
