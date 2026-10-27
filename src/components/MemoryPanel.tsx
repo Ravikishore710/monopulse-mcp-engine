@@ -6,6 +6,8 @@ import {
   RedisTier1Entry
 } from '../types/monopulse.ts';
 import { KaggleGpuDashboard } from './KaggleGpuDashboard.tsx';
+import { executeJsonRequest, useApiAction } from '../hooks/useApiAction.ts';
+import { THEME } from '../theme.ts';
 
 interface MemoryPanelProps {
   avgStepReductionPct: number;
@@ -27,9 +29,8 @@ export function MemoryPanel({
   const [semanticQuery, setSemanticQuery] = useState<string>(
     'PgBouncer connection pool exhaustion and HTTP 5xx spike on checkout-ledger-svc canary'
   );
-  const [semanticSearchRes, setSemanticSearchRes] = useState<any>(null);
-  const [searchingMemory, setSearchingMemory] = useState(false);
-  const [runningKaggleJob, setRunningKaggleJob] = useState(false);
+  const { data: semanticSearchRes, loading: searchingMemory, runAction: runMemorySearch } = useApiAction<any>();
+  const { loading: runningKaggleJob, runAction: runKaggleDistill } = useApiAction<any>();
   const [distillService, setDistillService] = useState<string>('checkout-ledger-svc');
   const [distillSummary, setDistillSummary] = useState<string>(
     'Distill multi-step PgBouncer lock contention trajectory into a zero-question ambient playbook skill.'
@@ -39,56 +40,41 @@ export function MemoryPanel({
   const [showPromptPreview, setShowPromptPreview] = useState<boolean>(false);
 
   const handleRunSemanticSearch = async (overrideQuery?: string) => {
-    setSearchingMemory(true);
     const q = overrideQuery ?? semanticQuery;
     if (overrideQuery) setSemanticQuery(overrideQuery);
-    try {
-      const res = await fetch('/api/memory/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: q, topK: 3 })
-      });
-      const data = await res.json();
-      setSemanticSearchRes(data);
-    } finally {
-      setSearchingMemory(false);
-    }
+    await runMemorySearch('/api/memory/search', {
+      method: 'POST',
+      body: { query: q, topK: 3 }
+    });
   };
 
   const handleDistillViaKaggle = async () => {
-    setRunningKaggleJob(true);
-    try {
-      await fetch('/api/kaggle/distill', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          eventId: selectedEventId,
-          customService: distillService,
-          customIncidentSummary: distillSummary
-        })
-      });
-      await onRefreshState();
-    } finally {
-      setRunningKaggleJob(false);
-    }
+    await runKaggleDistill('/api/kaggle/distill', {
+      method: 'POST',
+      body: {
+        eventId: selectedEventId,
+        customService: distillService,
+        customIncidentSummary: distillSummary
+      }
+    });
+    await onRefreshState();
   };
 
   const handlePlaybookVote = async (playbookId: string, vote: 'up' | 'down') => {
-    await fetch(`/api/memory/playbooks/${playbookId}/feedback`, {
+    await executeJsonRequest(`/api/memory/playbooks/${playbookId}/feedback`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ vote })
+      body: { vote }
     });
     await onRefreshState();
   };
 
   return (
     <div className="space-y-6">
-      <div className="border-b border-[#1F2937] pb-4">
-        <h1 className="text-xl font-bold text-[#F9FAFB] font-display">
+      <div className={THEME.HEADER_BORDER}>
+        <h1 className={THEME.TITLE_H1}>
           Operational Runbooks &amp; Playbook Library
         </h1>
-        <p className="text-xs text-[#9CA3AF] mt-1">
+        <p className={THEME.TEXT_SUBTITLE}>
           Executive runbook summaries, semantic pgvector playbook retrieval, and automated trajectory distillation.
         </p>
       </div>
@@ -96,10 +82,10 @@ export function MemoryPanel({
       <KaggleGpuDashboard jobs={kaggleGpuJobs} avgStepReductionPct={avgStepReductionPct} />
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        <div className="xl:col-span-7 border border-[#1F2937] bg-[#111827] rounded-lg p-5 space-y-4">
+        <div className={`xl:col-span-7 ${THEME.SURFACE_CARD_P5} space-y-4`}>
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-sm font-semibold text-[#F9FAFB]">
+              <h2 className={THEME.TITLE_H2}>
                 Tier-2 pgvector Semantic Similarity Search &amp; Prompt Skill Injector
               </h2>
               <p className="text-xs text-[#9CA3AF] mt-0.5">
@@ -115,7 +101,7 @@ export function MemoryPanel({
               value={semanticQuery}
               onChange={(e) => setSemanticQuery(e.target.value)}
               placeholder="Enter incoming incident query to compute cosine similarity..."
-              className="flex-1 bg-[#0B0F17] border border-[#1F2937] rounded-md px-3 py-2 text-xs text-[#F9FAFB]"
+              className={`flex-1 ${THEME.INPUT_BASE}`}
             />
             <button
               onClick={() => handleRunSemanticSearch()}
