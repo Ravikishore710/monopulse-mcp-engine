@@ -14,7 +14,7 @@ import { getConnectorStatusSummary, isSimulationModeActive, normalizeIncomingWeb
 import { processCliCommand } from './cliProcessor.ts';
 import { MCP_PROMPTS, MCP_PROTOCOL_VERSION, MCP_RESOURCES, executeSingleMcpRpcPayload } from './mcpProtocolSpec.ts';
 import { broadcastSseEvent, incrementUnhandledErrorMetric, incrementWebhookMetric, registerSseClient, renderPrometheusMetrics, traceContextMiddleware } from './observabilityEngine.ts';
-import { listDlqEntries, persistAmbientEventToSqlite, saveStepCheckpoint, verifyAuditHashChain } from './durableLedger.ts';
+import { listDlqEntries, loadDurableAmbientEvents, persistAmbientEventToSqlite, saveStepCheckpoint, verifyAuditHashChain } from './durableLedger.ts';
 import { createSecurityAndGovernanceRouter } from './securityAndGovernanceRouter.ts';
 
 export { executeSingleMcpRpcPayload };
@@ -67,9 +67,11 @@ export function createMonoPulseApp() {
 
   app.get('/api/system/state', (req, res) => {
     const reqLogger = createRequestLogContext('GET /api/system/state');
+    const durableEvents = loadDurableAmbientEvents(AMBIENT_EVENTS);
+    const mergedEvents = AMBIENT_EVENTS.length >= durableEvents.length ? AMBIENT_EVENTS : durableEvents;
     const stateDigest = crypto
       .createHash('sha1')
-      .update(`${WIRE_LOG.length}:${AMBIENT_EVENTS.length}:${AMBIENT_EVENTS[0]?.approvalState || ''}:${PGVECTOR_PLAYBOOKS.length}:${isSimulationModeActive()}`)
+      .update(`${WIRE_LOG.length}:${mergedEvents.length}:${mergedEvents[0]?.approvalState || ''}:${PGVECTOR_PLAYBOOKS.length}:${isSimulationModeActive()}`)
       .digest('hex')
       .slice(0, 12);
     const etag = `W/"mp-${stateDigest}"`;
@@ -83,7 +85,7 @@ export function createMonoPulseApp() {
       PGVECTOR_PLAYBOOKS.reduce((acc, p) => acc + p.stepReductionPct, 0) /
       Math.max(1, PGVECTOR_PLAYBOOKS.length);
 
-    reqLogger.info({ eventsCount: AMBIENT_EVENTS.length }, 'Serving system telemetry snapshot');
+    reqLogger.info({ eventsCount: mergedEvents.length }, 'Serving system telemetry snapshot');
     res.json({
       engineVersion: 'MonoPulse Core v3.7.0-Production',
       architecturePosture: 'AMBIENT_EVENT_PRECOMPUTE',
@@ -102,7 +104,7 @@ export function createMonoPulseApp() {
       mcpResources: MCP_RESOURCES,
       mcpPrompts: MCP_PROMPTS,
       wireLog: WIRE_LOG,
-      ambientEvents: AMBIENT_EVENTS,
+      ambientEvents: mergedEvents,
       redisTier1: REDIS_TIER1_STORE,
       pgvectorPlaybooks: PGVECTOR_PLAYBOOKS,
       kaggleGpuJobs: KAGGLE_GPU_JOBS,

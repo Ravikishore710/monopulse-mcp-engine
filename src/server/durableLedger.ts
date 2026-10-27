@@ -18,69 +18,30 @@ export function ensureDurableLedgerTables(): void {
   db.exec(`
     PRAGMA busy_timeout = 5000;
     PRAGMA synchronous = NORMAL;
-
     CREATE TABLE IF NOT EXISTS audit_hash_chain (
-      seq INTEGER PRIMARY KEY AUTOINCREMENT,
-      frame_id TEXT NOT NULL UNIQUE,
-      timestamp TEXT NOT NULL,
-      tool_name TEXT NOT NULL,
-      caller_role TEXT NOT NULL,
-      status TEXT NOT NULL,
-      prev_hash TEXT NOT NULL,
-      row_hash TEXT NOT NULL
+      seq INTEGER PRIMARY KEY AUTOINCREMENT, frame_id TEXT NOT NULL UNIQUE, timestamp TEXT NOT NULL,
+      tool_name TEXT NOT NULL, caller_role TEXT NOT NULL, status TEXT NOT NULL, prev_hash TEXT NOT NULL, row_hash TEXT NOT NULL
     );
-
     CREATE TABLE IF NOT EXISTS dead_letter_queue (
-      dlq_id TEXT PRIMARY KEY,
-      source TEXT NOT NULL,
-      payload_json TEXT NOT NULL,
-      error_reason TEXT NOT NULL,
-      retry_count INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'PENDING_RETRY',
-      created_at TEXT NOT NULL
+      dlq_id TEXT PRIMARY KEY, source TEXT NOT NULL, payload_json TEXT NOT NULL, error_reason TEXT NOT NULL,
+      retry_count INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'PENDING_RETRY', created_at TEXT NOT NULL
     );
-
     CREATE TABLE IF NOT EXISTS step_checkpoints (
-      checkpoint_key TEXT PRIMARY KEY,
-      event_id TEXT NOT NULL,
-      step_name TEXT NOT NULL,
-      output_json TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      checkpoint_key TEXT PRIMARY KEY, event_id TEXT NOT NULL, step_name TEXT NOT NULL, output_json TEXT NOT NULL, created_at TEXT NOT NULL
     );
-
     CREATE TABLE IF NOT EXISTS quorum_approvals (
-      event_id TEXT NOT NULL,
-      operator_id TEXT NOT NULL,
-      caller_role TEXT NOT NULL,
-      signature_hmac TEXT NOT NULL,
-      signed_at TEXT NOT NULL,
+      event_id TEXT NOT NULL, operator_id TEXT NOT NULL, caller_role TEXT NOT NULL, signature_hmac TEXT NOT NULL, signed_at TEXT NOT NULL,
       PRIMARY KEY (event_id, operator_id)
     );
-
     CREATE TABLE IF NOT EXISTS durable_ambient_events (
-      event_id TEXT PRIMARY KEY,
-      service TEXT NOT NULL,
-      status TEXT NOT NULL,
-      event_json TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      event_id TEXT PRIMARY KEY, service TEXT NOT NULL, status TEXT NOT NULL, event_json TEXT NOT NULL, updated_at TEXT NOT NULL
     );
-
     CREATE TABLE IF NOT EXISTS durable_playbooks (
-      playbook_id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      win_rate_pct REAL NOT NULL,
-      upvotes INTEGER NOT NULL DEFAULT 0,
-      downvotes INTEGER NOT NULL DEFAULT 0,
-      playbook_json TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      playbook_id TEXT PRIMARY KEY, title TEXT NOT NULL, win_rate_pct REAL NOT NULL, upvotes INTEGER NOT NULL DEFAULT 0,
+      downvotes INTEGER NOT NULL DEFAULT 0, playbook_json TEXT NOT NULL, updated_at TEXT NOT NULL
     );
-
     CREATE TABLE IF NOT EXISTS durable_redis_ttl (
-      key TEXT PRIMARY KEY,
-      ttl_seconds INTEGER NOT NULL,
-      expires_at_epoch INTEGER NOT NULL,
-      summary TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      key TEXT PRIMARY KEY, ttl_seconds INTEGER NOT NULL, expires_at_epoch INTEGER NOT NULL, summary TEXT NOT NULL, updated_at TEXT NOT NULL
     );
   `);
 
@@ -305,6 +266,30 @@ export function persistAmbientEventToSqlite(event: {
     `INSERT OR REPLACE INTO durable_ambient_events (event_id, service, status, event_json, updated_at)
      VALUES (?, ?, ?, ?, ?)`
   ).run(event.eventId, event.service, event.status, JSON.stringify(event), new Date().toISOString());
+}
+
+export function loadDurableAmbientEvents<T extends { eventId: string; service: string; approvalState: string }>(
+  seedEvents: T[]
+): T[] {
+  ensureDurableLedgerTables();
+  const db = getSqliteDb();
+  const countRow = db.prepare('SELECT COUNT(*) as cnt FROM durable_ambient_events').get();
+  if (!countRow || Number(countRow.cnt) === 0) {
+    for (const ev of seedEvents) {
+      persistAmbientEventToSqlite({ ...ev, status: ev.approvalState });
+    }
+  }
+  const rows = db.prepare('SELECT event_json FROM durable_ambient_events ORDER BY updated_at DESC').all();
+  const hydrated = rows
+    .map((r) => {
+      try {
+        return JSON.parse(String(r.event_json)) as T;
+      } catch (_err: unknown) {
+        return null;
+      }
+    })
+    .filter((item): item is T => item !== null);
+  return hydrated.length > 0 ? hydrated : seedEvents;
 }
 
 export function persistPlaybookToSqlite(
