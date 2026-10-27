@@ -132,4 +132,21 @@ describe('Express API Routes, Health Probe, Auth & Full Endpoint Suite', () => {
     expect(backupRes.body.hashChainIntegrity.valid).toBe(true);
     expect(Array.isArray(backupRes.body.deployments)).toBe(true);
   });
+
+  it('captures unhandled Express exceptions via global error middleware, increments monopulse_unhandled_errors_total, and prevents stack trace leaks', async () => {
+    const errRes = await request(app)
+      .get('/api/health/error-probe')
+      .set('X-Caller-Role', 'sre_admin');
+
+    expect(errRes.status).toBe(500);
+    expect(errRes.body.status).toBe('INTERNAL_SERVER_ERROR');
+    expect(errRes.body.error).toContain('Simulated unhandled service exception');
+    expect(errRes.body.route).toBe('/api/health/error-probe');
+    expect(errRes.body.stack).toBeUndefined();
+
+    const metricsRes = await request(app).get('/api/metrics');
+    expect(metricsRes.status).toBe(200);
+    expect(metricsRes.text).toMatch(/monopulse_unhandled_errors_total [1-9]/);
+  });
 });
+

@@ -9,6 +9,7 @@
     "cli": "NODE_NO_WARNINGS=1 tsx cli.ts",
     "mcp:stdio": "NODE_NO_WARNINGS=1 tsx cli.ts --mcp-stdio",
     "test": "NODE_NO_WARNINGS=1 vitest run",
+    "test:coverage": "NODE_NO_WARNINGS=1 vitest run --coverage",
     "test:api": "NODE_NO_WARNINGS=1 vitest run tests/apiRoutes.test.ts tests/mcpProtocolAndObservability.test.ts tests/sqliteAndCrypto.test.ts tests/durableGovernanceAndNormalization.test.ts",
     "test:load": "NODE_NO_WARNINGS=1 tsx scripts/loadTest.ts",
     "build": "vite build",
@@ -17,7 +18,16 @@
     "lint": "tsc --noEmit",
     "lint:eslint": "eslint src server.ts cli.ts --max-warnings=0",
     "lint:fix": "eslint --fix src server.ts cli.ts",
+    "precommit": "npm run lint && npm run lint:eslint",
+    "prepare": "git config core.hooksPath .husky || true",
+    "git:history": "NODE_NO_WARNINGS=1 tsx scripts/rebuildGitHistory.ts",
     "format": "prettier --write ."
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --max-warnings=0",
+      "tsc --noEmit"
+    ]
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -44,6 +54,7 @@
     "@types/supertest": "^7.2.1",
     "@typescript-eslint/eslint-plugin": "^8.72.0",
     "@typescript-eslint/parser": "^8.72.0",
+    "@vitest/coverage-v8": "^5.0.5",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
     "eslint": "^10.13.0",

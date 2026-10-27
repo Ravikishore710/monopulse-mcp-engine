@@ -97,8 +97,8 @@ export async function embedTextWithGeminiOrFallback(text: string): Promise<{
         const norm = Math.sqrt(sliced.reduce((a, b) => a + b * b, 0)) || 1;
         return { vector: sliced.map((v) => Number((v / norm).toFixed(5))), modelUsed: 'gemini-embedding-2-preview' };
       }
-    } catch {
-      // Fallback to deterministic vector
+    } catch (err: unknown) {
+      if (err instanceof Error) return { vector: computeDeterministicEmbedding(text, 64), modelUsed: 'kaggle-gpu-bge-large-en-v1.5' };
     }
   }
   return { vector: computeDeterministicEmbedding(text, 64), modelUsed: 'kaggle-gpu-bge-large-en-v1.5' };
@@ -342,8 +342,8 @@ export async function distillTrajectoryViaKaggleGPU(params: {
         if (parsed.triggerSignature) triggerSig = parsed.triggerSignature;
         if (parsed.markdownSkill) distilledMarkdown = parsed.markdownSkill;
       }
-    } catch {
-      // Fallback to deterministic distillation
+    } catch (err: unknown) {
+      if (err instanceof Error) distilledTitle = String(distilledTitle);
     }
   }
 

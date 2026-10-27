@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2, Play, Plus, Radio, Search, Sliders, Trash2, Zap } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronUp, Play, Plus, Radio, Search, Sliders, Trash2, Zap } from 'lucide-react';
 import { DEFAULT_TOOL_ARGS, MCPServerMetadata, MCPToolDefinition, RBACRole } from '../types/monopulse.ts';
 
 interface CustomIntegrationItem {
@@ -53,6 +53,8 @@ export function McpPanel({
   const [activeView, setActiveView] = useState<'connectors' | 'tools'>('connectors');
   const [integrations, setIntegrations] = useState<CustomIntegrationItem[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
+  const [expandedConnectorIds, setExpandedConnectorIds] = useState<Record<string, boolean>>({});
+  const [showSchemaDetail, setShowSchemaDetail] = useState<boolean>(false);
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [newIntName, setNewIntName] = useState<string>('');
   const [newIntProvider, setNewIntProvider] = useState<string>('');
@@ -64,9 +66,7 @@ export function McpPanel({
 
   const [toolSearchQuery, setToolSearchQuery] = useState<string>('');
   const [selectedToolName, setSelectedToolName] = useState<string>('sql_execute_readonly_query');
-  const [rpcArgsText, setRpcArgsText] = useState<string>(
-    JSON.stringify(DEFAULT_TOOL_ARGS['sql_execute_readonly_query'], null, 2)
-  );
+  const [rpcArgsText, setRpcArgsText] = useState<string>(JSON.stringify(DEFAULT_TOOL_ARGS['sql_execute_readonly_query'], null, 2));
   const [rpcResponse, setRpcResponse] = useState<any>(null);
   const [executingRpc, setExecutingRpc] = useState(false);
 
@@ -75,14 +75,12 @@ export function McpPanel({
       const res = await fetch('/api/integrations');
       const data = await res.json();
       if (Array.isArray(data.integrations)) setIntegrations(data.integrations);
-    } catch {
-      // Handled gracefully
+    } catch (err: unknown) {
+      setActionBanner(err instanceof Error ? err.message : 'Unable to load integrations');
     }
   };
 
-  useEffect(() => {
-    loadIntegrations();
-  }, []);
+  useEffect(() => { loadIntegrations(); }, []);
 
   const handleCreateIntegration = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,10 +138,7 @@ export function McpPanel({
   const selectedTool = tools.find((t) => t.name === selectedToolName) || tools[0];
   const filteredTools = tools.filter((t) => {
     const matchesServer = selectedServerFilter === 'all' || t.serverId === selectedServerFilter;
-    const matchesSearch =
-      !toolSearchQuery ||
-      t.name.toLowerCase().includes(toolSearchQuery.toLowerCase()) ||
-      t.description.toLowerCase().includes(toolSearchQuery.toLowerCase());
+    const matchesSearch = !toolSearchQuery || t.name.toLowerCase().includes(toolSearchQuery.toLowerCase()) || t.description.toLowerCase().includes(toolSearchQuery.toLowerCase());
     return matchesServer && matchesSearch;
   });
 
@@ -193,8 +188,8 @@ export function McpPanel({
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#1F2937] pb-4">
         <div>
-          <h1 className="text-xl font-semibold text-[#F9FAFB] font-display">Integrations &amp; Custom Connector Hub</h1>
-          <p className="text-xs text-[#9CA3AF] mt-1">
+          <h1 className="text-lg font-semibold tracking-tight text-[#F9FAFB] font-display">Integrations &amp; Custom Connector Hub</h1>
+          <p className="text-xs text-[#9CA3AF] mt-0.5">
             Connect observability, on-call, ticketing, chat, cloud deployment, and custom webhook or MCP providers.
           </p>
         </div>
@@ -202,18 +197,14 @@ export function McpPanel({
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1 p-1 bg-[#111827] border border-[#1F2937] rounded-lg">
             <button onClick={() => setActiveView('connectors')} className={`px-3 py-1.5 text-xs font-medium rounded cursor-pointer flex items-center gap-1.5 ${activeView === 'connectors' ? 'bg-[#2563EB] text-white' : 'text-[#9CA3AF] hover:text-[#F9FAFB]'}`}>
-              <Radio className="w-3.5 h-3.5" />
-              <span>Connected Platforms ({integrations.length})</span>
+              <Radio className="w-3.5 h-3.5" /><span>Connected Platforms ({integrations.length})</span>
             </button>
             <button onClick={() => setActiveView('tools')} className={`px-3 py-1.5 text-xs font-medium rounded cursor-pointer flex items-center gap-1.5 ${activeView === 'tools' ? 'bg-[#2563EB] text-white' : 'text-[#9CA3AF] hover:text-[#F9FAFB]'}`}>
-              <Sliders className="w-3.5 h-3.5" />
-              <span>MCP Tool Catalog ({tools.length})</span>
+              <Sliders className="w-3.5 h-3.5" /><span>MCP Tool Catalog ({tools.length})</span>
             </button>
           </div>
-
-          <button onClick={() => { setActiveView('connectors'); setShowAddModal((prev) => !prev); }} className="px-3.5 py-2 text-xs font-semibold bg-[#2563EB] hover:bg-blue-500 text-white rounded-md cursor-pointer flex items-center gap-1.5 whitespace-nowrap">
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Custom Integration</span>
+          <button onClick={() => { setActiveView('connectors'); setShowAddModal((prev) => !prev); }} className="px-3.5 py-2 text-xs font-medium bg-[#2563EB] hover:bg-blue-500 text-white rounded-md cursor-pointer flex items-center gap-1.5 whitespace-nowrap">
+            <Plus className="w-3.5 h-3.5" /><span>Add Custom Integration</span>
           </button>
         </div>
       </div>
@@ -228,7 +219,7 @@ export function McpPanel({
       {activeView === 'connectors' && (
         <div className="space-y-5">
           {showAddModal && (
-            <form onSubmit={handleCreateIntegration} className="border border-[#2563EB]/50 bg-[#111827] rounded-lg p-5 space-y-4">
+            <form onSubmit={handleCreateIntegration} className="border border-[#2563EB]/50 bg-[#111827] rounded-xl p-5 space-y-4">
               <div className="flex items-center justify-between border-b border-[#1F2937] pb-3">
                 <div>
                   <h2 className="text-sm font-semibold text-[#F9FAFB]">Register Custom Integration or Webhook Bridge</h2>
@@ -255,57 +246,63 @@ export function McpPanel({
                 </select>
               </div>
               <div className="flex justify-end">
-                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-[#2563EB] hover:bg-blue-500 text-white rounded-md cursor-pointer">Save &amp; Connect Integration</button>
+                <button type="submit" className="px-4 py-2 text-xs font-medium bg-[#2563EB] hover:bg-blue-500 text-white rounded-md cursor-pointer">Save &amp; Connect Integration</button>
               </div>
             </form>
           )}
 
           <div className="flex flex-wrap items-center gap-1 p-1 bg-[#111827] border border-[#1F2937] rounded-lg w-fit">
             {CATEGORIES.map((cat) => (
-              <button key={cat} onClick={() => setCategoryFilter(cat)} className={`px-3 py-1.5 text-xs font-medium rounded cursor-pointer whitespace-nowrap ${categoryFilter === cat ? 'bg-[#2563EB] text-white' : 'text-[#9CA3AF] hover:text-[#F9FAFB]'}`}>
-                {cat}
-              </button>
+              <button key={cat} onClick={() => setCategoryFilter(cat)} className={`px-3 py-1.5 text-xs font-medium rounded cursor-pointer whitespace-nowrap ${categoryFilter === cat ? 'bg-[#2563EB] text-white' : 'text-[#9CA3AF] hover:text-[#F9FAFB]'}`}>{cat}</button>
             ))}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {visibleIntegrations.map((item) => (
-              <div key={item.id} className="border border-[#1F2937] bg-[#111827] rounded-lg p-5 flex flex-col justify-between space-y-4">
-                <div className="space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <div className="text-xs text-[#9CA3AF]">{item.provider} · {item.category}</div>
-                      <h3 className="text-sm font-semibold text-[#F9FAFB] mt-0.5">{item.name}</h3>
+            {visibleIntegrations.map((item) => {
+              const isExpanded = Boolean(expandedConnectorIds[item.id]);
+              return (
+                <div key={item.id} className="border border-[#1F2937] bg-[#111827] rounded-xl p-5 flex flex-col justify-between space-y-4">
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="text-xs text-[#9CA3AF]">{item.provider} · {item.category}</div>
+                        <h3 className="text-sm font-semibold text-[#F9FAFB] mt-0.5">{item.name}</h3>
+                      </div>
+                      <span className="text-xs font-mono font-medium text-[#16A34A] shrink-0">{item.status}</span>
                     </div>
-                    <span className="text-xs font-mono text-[#16A34A] shrink-0">{item.status}</span>
+                    <p className="text-xs text-[#F9FAFB]/85 leading-relaxed">
+                      Routes {item.category.toLowerCase()} signals into <span className="font-mono text-[#F9FAFB]">{item.mappedService}</span> ({item.lastLatencyMs}ms p95).
+                    </p>
+                    <button type="button" onClick={() => setExpandedConnectorIds((prev) => ({ ...prev, [item.id]: !prev[item.id] }))} className="text-[11px] font-mono text-[#9CA3AF] hover:text-[#F9FAFB] flex items-center gap-1 cursor-pointer pt-0.5">
+                      <span>{isExpanded ? 'Hide Technical Details' : 'View Technical Details'}</span>
+                      {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    </button>
+                    {isExpanded && (
+                      <div className="p-2.5 rounded bg-[#0B0F17] border border-[#1F2937] text-[11px] font-mono text-[#9CA3AF] space-y-1">
+                        <div className="truncate">Endpoint: {item.endpointUrl}</div>
+                        <div>Protocol: {item.protocol} · Auth: {item.authMethod}</div>
+                      </div>
+                    )}
                   </div>
-                  <div className="text-xs font-mono text-[#9CA3AF] truncate">{item.endpointUrl}</div>
-                  <div className="text-xs text-[#9CA3AF] flex items-center gap-2 pt-1">
-                    <span>{item.protocol}</span>
-                    <span>·</span>
-                    <span className="font-mono tabular-nums">{item.lastLatencyMs}ms</span>
-                  </div>
-                </div>
 
-                <div className="pt-3 border-t border-[#1F2937] flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => handleTestIntegration(item.id)} className="px-2.5 py-1.5 text-xs font-medium border border-[#1F2937] bg-[#0B0F17] text-[#F9FAFB] hover:border-slate-600 rounded cursor-pointer flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-[#16A34A]" />
-                      <span>Verify</span>
-                    </button>
-                    <button onClick={() => handleTriggerIntegrationIncident(item.id)} className="px-2.5 py-1.5 text-xs font-medium bg-[#2563EB]/15 text-[#2563EB] hover:bg-[#2563EB] hover:text-white rounded cursor-pointer flex items-center gap-1">
-                      <Zap className="w-3.5 h-3.5" />
-                      <span>Simulate Alert</span>
-                    </button>
+                  <div className="pt-3 border-t border-[#1F2937] flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => handleTestIntegration(item.id)} className="px-2.5 py-1.5 text-xs font-medium border border-[#1F2937] bg-[#0B0F17] text-[#F9FAFB] hover:border-slate-600 rounded cursor-pointer flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-[#16A34A]" /><span>Verify</span>
+                      </button>
+                      <button onClick={() => handleTriggerIntegrationIncident(item.id)} className="px-2.5 py-1.5 text-xs font-medium bg-[#2563EB]/15 text-[#2563EB] hover:bg-[#2563EB] hover:text-white rounded cursor-pointer flex items-center gap-1">
+                        <Zap className="w-3.5 h-3.5" /><span>Simulate Alert</span>
+                      </button>
+                    </div>
+                    {!item.isBuiltIn && (
+                      <button onClick={() => handleDeleteIntegration(item.id)} aria-label={`Remove ${item.name}`} className="p-1.5 text-[#9CA3AF] hover:text-[#DC2626] cursor-pointer">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
-                  {!item.isBuiltIn && (
-                    <button onClick={() => handleDeleteIntegration(item.id)} aria-label={`Remove ${item.name}`} className="p-1.5 text-[#9CA3AF] hover:text-[#DC2626] cursor-pointer">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -313,9 +310,7 @@ export function McpPanel({
       {activeView === 'tools' && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-1 p-1 bg-[#111827] border border-[#1F2937] rounded-lg w-fit">
-            <button onClick={() => onSelectServerFilter('all')} className={`px-2.5 py-1.5 text-xs font-mono rounded cursor-pointer ${selectedServerFilter === 'all' ? 'bg-[#2563EB] text-white' : 'text-[#9CA3AF] hover:text-[#F9FAFB]'}`}>
-              All ({tools.length})
-            </button>
+            <button onClick={() => onSelectServerFilter('all')} className={`px-2.5 py-1.5 text-xs font-mono rounded cursor-pointer ${selectedServerFilter === 'all' ? 'bg-[#2563EB] text-white' : 'text-[#9CA3AF] hover:text-[#F9FAFB]'}`}>All ({tools.length})</button>
             {servers.map((srv) => (
               <button key={srv.id} onClick={() => onSelectServerFilter(srv.id)} className={`px-2.5 py-1.5 text-xs font-mono rounded cursor-pointer ${selectedServerFilter === srv.id ? 'bg-[#2563EB] text-white' : 'text-[#9CA3AF] hover:text-[#F9FAFB]'}`}>
                 {srv.id.replace('-mcp', '')} ({srv.toolCount})
@@ -324,7 +319,7 @@ export function McpPanel({
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-            <div className="xl:col-span-5 border border-[#1F2937] bg-[#111827] rounded-lg p-4 space-y-3">
+            <div className="xl:col-span-5 border border-[#1F2937] bg-[#111827] rounded-xl p-4 space-y-3">
               <div className="relative">
                 <Search className="w-4 h-4 text-[#9CA3AF] absolute left-3 top-2.5" />
                 <input type="text" value={toolSearchQuery} onChange={(e) => setToolSearchQuery(e.target.value)} placeholder="Filter 28 tools by name or description..." className="w-full bg-[#0B0F17] border border-[#1F2937] rounded-md pl-9 pr-3 py-2 text-xs text-[#F9FAFB]" />
@@ -336,7 +331,7 @@ export function McpPanel({
                   return (
                     <button key={tool.name} onClick={() => handleSelectTool(tool.name)} className={`w-full text-left p-3 transition-colors cursor-pointer block ${active ? 'bg-[#111827]' : 'hover:bg-[#111827]/60'}`}>
                       <div className="flex items-center justify-between gap-2 text-xs font-mono">
-                        <span className={active ? 'text-[#2563EB] font-semibold' : 'text-[#F9FAFB]'}>{tool.name}</span>
+                        <span className={active ? 'text-[#2563EB] font-medium' : 'text-[#F9FAFB]'}>{tool.name}</span>
                         <span className={tool.isMutation ? 'text-[#D97706]' : 'text-[#9CA3AF]'}>{tool.isMutation ? 'MUTATION' : 'READ-ONLY'}</span>
                       </div>
                       <div className="text-[11px] text-[#9CA3AF] mt-1 line-clamp-1">{tool.description}</div>
@@ -350,35 +345,39 @@ export function McpPanel({
               </div>
             </div>
 
-            <div className="xl:col-span-7 border border-[#1F2937] bg-[#111827] rounded-lg p-6 space-y-5">
-              <div className="border-b border-[#1F2937] pb-4 space-y-1.5">
+            <div className="xl:col-span-7 border border-[#1F2937] bg-[#111827] rounded-xl p-6 space-y-5">
+              <div className="border-b border-[#1F2937] pb-4 space-y-2">
                 <div className="flex items-center justify-between text-xs font-mono">
                   <span>{selectedTool.serverId} · <strong className="text-[#F9FAFB]">{selectedTool.name}</strong></span>
                   <span className={selectedTool.isMutation ? 'text-[#D97706]' : 'text-[#16A34A]'}>{selectedTool.isMutation ? 'MUTATION_GATE_ACTIVE' : 'READ_ONLY'}</span>
                 </div>
-                <p className="text-xs text-[#9CA3AF]">{selectedTool.description}</p>
-                <div className="text-xs font-mono text-[#9CA3AF]">Allowed Roles: {selectedTool.allowedRoles.join(' · ')}</div>
+                <p className="text-xs text-[#F9FAFB]/90 leading-relaxed">{selectedTool.description}</p>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono text-[#9CA3AF]">
+                  <span>Allowed Roles: {selectedTool.allowedRoles.join(' · ')}</span>
+                  <button type="button" onClick={() => setShowSchemaDetail((prev) => !prev)} className="text-[#2563EB] hover:underline cursor-pointer">
+                    {showSchemaDetail ? 'Hide Input JSON Schema (Draft-07)' : 'View Input JSON Schema (Draft-07)'}
+                  </button>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {showSchemaDetail && (
                 <div>
-                  <div className="text-xs font-semibold text-[#9CA3AF] mb-1.5">Input JSON Schema (Draft-07)</div>
-                  <pre className="p-3 rounded bg-[#0B0F17] border border-[#1F2937] text-[11px] font-mono text-[#9CA3AF] overflow-x-auto h-52">{JSON.stringify(selectedTool.inputSchema, null, 2)}</pre>
+                  <div className="text-xs font-medium text-[#9CA3AF] mb-1.5">Input JSON Schema (Draft-07)</div>
+                  <pre className="p-3 rounded bg-[#0B0F17] border border-[#1F2937] text-[11px] font-mono text-[#9CA3AF] overflow-x-auto max-h-48">{JSON.stringify(selectedTool.inputSchema, null, 2)}</pre>
                 </div>
-                <div className="flex flex-col">
-                  <div className="flex items-center justify-between text-xs font-semibold text-[#9CA3AF] mb-1.5">
-                    <span>JSON-RPC 2.0 Arguments</span>
-                    <span className="font-mono text-[#F9FAFB]">Role: {callerRole}</span>
-                  </div>
-                  <textarea value={rpcArgsText} onChange={(e) => setRpcArgsText(e.target.value)} className="flex-1 bg-[#0B0F17] border border-[#1F2937] rounded p-3 font-mono text-xs text-[#F9FAFB] h-52" />
+              )}
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-medium text-[#9CA3AF]">
+                  <span>JSON-RPC 2.0 Arguments</span><span className="font-mono text-[#F9FAFB]">Role: {callerRole}</span>
                 </div>
+                <textarea value={rpcArgsText} onChange={(e) => setRpcArgsText(e.target.value)} rows={5} className="w-full bg-[#0B0F17] border border-[#1F2937] rounded p-3 font-mono text-xs text-[#F9FAFB]" />
               </div>
 
               <div className="flex items-center justify-between pt-1">
                 <span className="text-xs font-mono text-[#9CA3AF]">POST /api/mcp/rpc</span>
-                <button onClick={() => handleDispatchMCPTool()} disabled={executingRpc} className="px-4 py-2 bg-[#2563EB] hover:bg-blue-500 text-white text-xs font-semibold rounded-md flex items-center gap-2 cursor-pointer">
-                  <Play className="w-3.5 h-3.5" />
-                  <span>{executingRpc ? 'Executing...' : `Invoke ${selectedTool.name}`}</span>
+                <button onClick={() => handleDispatchMCPTool()} disabled={executingRpc} className="px-4 py-2 bg-[#2563EB] hover:bg-blue-500 text-white text-xs font-medium rounded-md flex items-center gap-2 cursor-pointer">
+                  <Play className="w-3.5 h-3.5" /><span>{executingRpc ? 'Executing...' : `Invoke ${selectedTool.name}`}</span>
                 </button>
               </div>
 

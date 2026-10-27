@@ -303,7 +303,7 @@ export function sanitizeAndTruncateMcpPayload<T>(payload: T, maxBytes = 16384): 
   }
   try {
     return JSON.parse(serialized) as T;
-  } catch {
+  } catch (_parseErr: unknown) {
     return payload;
   }
 }

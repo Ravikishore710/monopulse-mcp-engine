@@ -6,9 +6,12 @@ on:
   pull_request:
     branches: [main, master, '*']
 
+env:
+  MONOPULSE_FORCE_SIMULATION: 'true'
+
 jobs:
   build-and-test:
-    name: Install, Typecheck (tsc --noEmit) & Test
+    name: Install, Audit, Typecheck, Coverage & Build
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -27,6 +30,16 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Run npm audit
+        run: npm audit --audit-level=high
+
+      - name: Run automated secret scanning
+        run: |
+          if grep -RInE "(ghp_[A-Za-z0-9]{36}|xoxb-[0-9]{10,}|AIza[0-9A-Za-z-_]{35}|-----BEGIN (RSA|EC|OPENSSH) PRIVATE KEY-----)" src tests server.ts cli.ts; then
+            echo "Hardcoded secret pattern detected!"
+            exit 1
+          fi
+
       - name: Run TypeScript typecheck
         run: tsc --noEmit
 
@@ -36,8 +49,36 @@ jobs:
       - name: Run automated test suite
         run: npm run test
 
+      - name: Run coverage with threshold
+        run: npm run test:coverage
+
       - name: Run API integration test suite
         run: npm run test:api
 
       - name: Verify reproducible production build
         run: npm run build
+
+  deploy-release-bundle:
+    name: Package & Verify Production Release Artifact
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'npm'
+
+      - name: Install production & build dependencies
+        run: npm install
+
+      - name: Build production client bundle
+        run: npm run build
+
+      - name: Verify health & stress-test harness pre-deploy
+        run: npm run test:load
+

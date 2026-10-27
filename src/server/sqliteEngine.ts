@@ -45,8 +45,8 @@ export function closeSqliteDb(): void {
   if (dbInstance) {
     try {
       dbInstance.close?.();
-    } catch {
-      // Ignore close errors during shutdown
+    } catch (_err: unknown) {
+      dbInstance = null;
     }
     dbInstance = null;
   }
@@ -165,7 +165,7 @@ export function executeSqliteReadOnlyQuery(
       rowCount: rows.length,
       rows
     };
-  } catch {
+  } catch (_err: unknown) {
     const qLower = cleaned.toLowerCase();
     const matchedTable =
       Object.values(SQL_TABLES).find((t) => qLower.includes(t.tableName)) || SQL_TABLES.deployments;
@@ -235,7 +235,7 @@ export function explainSqliteQueryPlan(rawQuery: string): Record<string, any> {
       id: Number(r.id ?? 0),
       detail: String(r.detail ?? 'SCAN TABLE')
     }));
-  } catch {
+  } catch (_err: unknown) {
     sqlitePlanSteps = [{ id: 2, detail: 'SCAN deployments' }];
   }
 

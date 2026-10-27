@@ -12,7 +12,7 @@ import { acquireEventApprovalLock, computeAndRecordWebhookFingerprint, getSqlite
 import { getConnectorStatusSummary, isSimulationModeActive, normalizeIncomingWebhookPayload } from './liveConnectors.ts';
 import { processCliCommand } from './cliProcessor.ts';
 import { MCP_PROMPTS, MCP_PROTOCOL_VERSION, MCP_RESOURCES, executeSingleMcpRpcPayload } from './mcpProtocolSpec.ts';
-import { broadcastSseEvent, incrementWebhookMetric, registerSseClient, renderPrometheusMetrics, traceContextMiddleware } from './observabilityEngine.ts';
+import { broadcastSseEvent, incrementUnhandledErrorMetric, incrementWebhookMetric, registerSseClient, renderPrometheusMetrics, traceContextMiddleware } from './observabilityEngine.ts';
 import { listDlqEntries, persistAmbientEventToSqlite, saveStepCheckpoint, verifyAuditHashChain } from './durableLedger.ts';
 import { createSecurityAndGovernanceRouter } from './securityAndGovernanceRouter.ts';
 
@@ -28,6 +28,10 @@ export function createMonoPulseApp() {
 
   app.get('/api/health/live', (_req, res) => {
     res.json({ status: 'alive', uptimeSec: Math.round(process.uptime()) });
+  });
+
+  app.get('/api/health/error-probe', (_req, _res, next) => {
+    next(new Error('Simulated unhandled service exception for error-tracking verification'));
   });
 
   app.get(['/api/health', '/api/health/ready'], (_req, res) => {
@@ -354,5 +358,30 @@ export function createMonoPulseApp() {
 
   app.use(createSecurityAndGovernanceRouter());
 
+  app.use(
+    (
+      err: Error,
+      req: express.Request,
+      res: express.Response,
+      _next: express.NextFunction
+    ) => {
+      const reqLogger = createRequestLogContext(`ERROR ${req.method} ${req.path}`);
+      const callerRole = String(
+        req.header('X-Caller-Role') || req.body?.callerRole || 'anonymous'
+      );
+      incrementUnhandledErrorMetric(req.path, callerRole);
+      reqLogger.error(
+        { errStack: err.stack, route: req.path, callerRole },
+        'Unhandled Express service exception captured by error sink'
+      );
+      res.status(500).json({
+        status: 'INTERNAL_SERVER_ERROR',
+        error: err.message || 'Unhandled internal server error',
+        route: req.path
+      });
+    }
+  );
+
   return app;
 }
+

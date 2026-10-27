@@ -48,33 +48,39 @@ describe('Multi-User Slack Workspace Simulator & Concurrency Verification Suite'
   });
 
   it('isolates all external MCP connectors (Slack, Jira, GitHub) and seeds SimulationDataService when Simulation Mode is active', async () => {
-    const enableRes = await request(app).post('/api/system/simulation').send({ enabled: true });
-    expect(enableRes.status).toBe(200);
-    expect(enableRes.body.simulationMode).toBe(true);
-    expect(enableRes.body.simulationDataset.seeded).toBe(true);
-    expect(enableRes.body.simulationDataset.counts.totalSqlRows).toBeGreaterThanOrEqual(20);
-    expect(enableRes.body.simulationDataset.counts.jiraTickets).toBeGreaterThanOrEqual(5);
-    expect(enableRes.body.simulationDataset.counts.slackThreads).toBeGreaterThanOrEqual(4);
+    const prevForceSim = process.env.MONOPULSE_FORCE_SIMULATION;
+    process.env.MONOPULSE_FORCE_SIMULATION = 'false';
+    try {
+      const enableRes = await request(app).post('/api/system/simulation').send({ enabled: true });
+      expect(enableRes.status).toBe(200);
+      expect(enableRes.body.simulationMode).toBe(true);
+      expect(enableRes.body.simulationDataset.seeded).toBe(true);
+      expect(enableRes.body.simulationDataset.counts.totalSqlRows).toBeGreaterThanOrEqual(20);
+      expect(enableRes.body.simulationDataset.counts.jiraTickets).toBeGreaterThanOrEqual(5);
+      expect(enableRes.body.simulationDataset.counts.slackThreads).toBeGreaterThanOrEqual(4);
 
-    const ghConnector = enableRes.body.connectors.find((c: any) => c.serverId === 'github-mcp');
-    const jiraConnector = enableRes.body.connectors.find((c: any) => c.serverId === 'jira-mcp');
-    const slackConnector = enableRes.body.connectors.find((c: any) => c.serverId === 'slack-mcp');
-    expect(ghConnector.mode).toBe('DETERMINISTIC_FALLBACK');
-    expect(ghConnector.endpointBase).toBe('mock://github-sandbox');
-    expect(jiraConnector.mode).toBe('DETERMINISTIC_FALLBACK');
-    expect(jiraConnector.endpointBase).toBe('mock://jira-sandbox');
-    expect(slackConnector.mode).toBe('DETERMINISTIC_FALLBACK');
+      const ghConnector = enableRes.body.connectors.find((c: any) => c.serverId === 'github-mcp');
+      const jiraConnector = enableRes.body.connectors.find((c: any) => c.serverId === 'jira-mcp');
+      const slackConnector = enableRes.body.connectors.find((c: any) => c.serverId === 'slack-mcp');
+      expect(ghConnector.mode).toBe('DETERMINISTIC_FALLBACK');
+      expect(ghConnector.endpointBase).toBe('mock://github-sandbox');
+      expect(jiraConnector.mode).toBe('DETERMINISTIC_FALLBACK');
+      expect(jiraConnector.endpointBase).toBe('mock://jira-sandbox');
+      expect(slackConnector.mode).toBe('DETERMINISTIC_FALLBACK');
 
-    const verifyRes = await request(app).get('/api/security/connectors/verify');
-    expect(verifyRes.status).toBe(200);
-    expect(verifyRes.body.simulationMode).toBe(true);
-    expect(verifyRes.body.liveVerification.github.detail).toContain('SIMULATION_MODE_ACTIVE');
-    expect(verifyRes.body.liveVerification.jira.detail).toContain('SIMULATION_MODE_ACTIVE');
+      const verifyRes = await request(app).get('/api/security/connectors/verify');
+      expect(verifyRes.status).toBe(200);
+      expect(verifyRes.body.simulationMode).toBe(true);
+      expect(verifyRes.body.liveVerification.github.detail).toContain('SIMULATION_MODE_ACTIVE');
+      expect(verifyRes.body.liveVerification.jira.detail).toContain('SIMULATION_MODE_ACTIVE');
 
-    // Reset Simulation Mode back to false after test
-    const disableRes = await request(app).post('/api/system/simulation').send({ enabled: false });
-    expect(disableRes.status).toBe(200);
-    expect(disableRes.body.simulationMode).toBe(false);
+      // Reset Simulation Mode back to false after test
+      const disableRes = await request(app).post('/api/system/simulation').send({ enabled: false });
+      expect(disableRes.status).toBe(200);
+      expect(disableRes.body.simulationMode).toBe(false);
+    } finally {
+      process.env.MONOPULSE_FORCE_SIMULATION = prevForceSim;
+    }
   });
 
   it('handles a burst of concurrent webhooks, multi-role MCP RPC calls, and 4-operator approval race conditions on POST /api/system/load-test', async () => {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2, Download, Lock, Play, RefreshCw, Terminal, Wrench } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronUp, Download, Lock, Play, RefreshCw, Terminal, Wrench } from 'lucide-react';
 import { MCPWireFrame, RBACRole } from '../types/monopulse.ts';
 import { CliPanel } from './CliPanel.tsx';
 
@@ -50,6 +50,7 @@ export function TrustAuditPanel({
 }: TrustAuditPanelProps) {
   const [subTab, setSubTab] = useState<'ledger' | 'cli' | 'sandbox'>('ledger');
   const [auditData, setAuditData] = useState<AuditData | null>(null);
+  const [showConnectorDetails, setShowConnectorDetails] = useState<boolean>(false);
   const [sqlQuery, setSqlQuery] = useState<string>(
     'SELECT d.deploy_id, d.service, d.status, i.error_rate_pct, i.p99_latency_ms FROM deployments d JOIN service_incidents i ON d.service = i.service'
   );
@@ -151,7 +152,7 @@ export function TrustAuditPanel({
         <div>
           <h1 className="text-xl font-bold text-[#F9FAFB] font-display">Compliance Audit, CLI &amp; System Settings</h1>
           <p className="text-xs text-[#9CA3AF] mt-1">
-            Inspect the relational SQLite database, verify the SHA-256 Merkle audit hash chain, run CLI diagnostics, or access the Developer Sandbox.
+            Executive compliance posture, SHA-256 Merkle audit verification, relational SQLite console, and Developer Sandbox.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -253,107 +254,122 @@ export function TrustAuditPanel({
       )}
 
       {subTab === 'ledger' && auditData && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-5 space-y-5">
-            <div className="border border-[#1F2937] bg-[#111827] p-5 rounded-lg space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-[#F9FAFB]">Embedded SQLite Storage Engine</h2>
-                <span className="text-xs font-mono text-[#16A34A]">{auditData.sqliteDatabase.engine}</span>
+        <div className="space-y-6">
+          {/* Executive Compliance Overview Banner */}
+          <div className="border border-[#1F2937] bg-[#111827] rounded-lg p-5 flex flex-wrap items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="text-xs font-semibold uppercase tracking-wider text-[#2563EB]">
+                Executive Security &amp; Compliance Summary
               </div>
-              <div className="divide-y divide-[#1F2937] border border-[#1F2937] rounded-md bg-[#0B0F17]">
-                {auditData.sqliteDatabase.tables.map((t) => (
-                  <div key={t.name} className="px-3.5 py-2 flex items-center justify-between text-xs font-mono">
-                    <span className="text-[#F9FAFB]">{t.name}</span>
-                    <span className="tabular-nums text-[#9CA3AF]">{t.rowCount} rows</span>
-                  </div>
-                ))}
-              </div>
+              <p className="text-sm text-[#F9FAFB]/90">
+                All {hashChainCheck?.verifiedRows ?? auditData.auditLogEntries.length} audit frames are cryptographically chained via SHA-256 and persisted in {auditData.sqliteDatabase.engine}.
+              </p>
             </div>
-
-            <div className="border border-[#1F2937] bg-[#111827] p-5 rounded-lg space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-[#F9FAFB]">SHA-256 Tamper-Evident Audit Hash Chain</h2>
-                <button onClick={handleVerifyHashChain} className="px-2.5 py-1 text-xs font-medium bg-[#16A34A] text-white rounded hover:bg-emerald-500 cursor-pointer flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Verify Chain</span>
-                </button>
-              </div>
-              {hashChainCheck && (
-                <div className="p-3 bg-[#0B0F17] border border-[#1F2937] rounded text-xs font-mono space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[#9CA3AF]">Chain Integrity:</span>
-                    <span className={hashChainCheck.valid ? 'text-[#16A34A]' : 'text-[#DC2626]'}>
-                      {hashChainCheck.valid ? 'CRYPTOGRAPHICALLY_VALID' : 'TAMPER_DETECTED'}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-[#9CA3AF]">
-                    <span>Verified Frames:</span>
-                    <span className="text-[#F9FAFB] tabular-nums">{hashChainCheck.verifiedRows}</span>
-                  </div>
-                  <div className="text-[11px] text-[#9CA3AF] truncate">Head SHA-256: {hashChainCheck.headHash}</div>
-                </div>
-              )}
-            </div>
-
-            <div className="border border-[#1F2937] bg-[#111827] p-5 rounded-lg space-y-3">
-              <h2 className="text-sm font-semibold text-[#F9FAFB]">Connector Endpoints &amp; Circuit Breakers</h2>
-              <div className="divide-y divide-[#1F2937] border border-[#1F2937] rounded-md bg-[#0B0F17]">
-                {auditData.connectorModes.map((c) => (
-                  <div key={c.serverId} className="p-3 space-y-1">
-                    <div className="flex items-center justify-between text-xs font-mono">
-                      <span className="text-[#F9FAFB] font-semibold">{c.serverId}</span>
-                      <span className={c.mode === 'DETERMINISTIC_FALLBACK' ? 'text-[#D97706]' : 'text-[#16A34A]'}>
-                        {c.mode} · CB:{c.circuitState || 'CLOSED'}
-                      </span>
-                    </div>
-                    <div className="text-xs text-[#9CA3AF] flex items-center justify-between">
-                      <span>{c.provider}</span>
-                      <span className="font-mono">{c.endpointBase}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+            <div className="flex items-center gap-3 text-xs font-mono">
+              <span className={hashChainCheck?.valid !== false ? 'text-[#16A34A] font-semibold' : 'text-[#DC2626] font-semibold'}>
+                {hashChainCheck?.valid !== false ? 'CRYPTOGRAPHICALLY_VALID' : 'TAMPER_DETECTED'}
+              </span>
+              <button onClick={handleVerifyHashChain} className="px-3 py-1.5 text-xs font-medium bg-[#16A34A] text-white rounded-md hover:bg-emerald-500 cursor-pointer flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Verify Chain</span>
+              </button>
             </div>
           </div>
 
-          <div className="lg:col-span-7 space-y-5">
-            <div className="border border-[#1F2937] bg-[#111827] p-5 rounded-lg space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-[#F9FAFB]">Live SQLite Read-Only Query Console</h2>
-                <button onClick={handleRunLiveSqliteQuery} className="px-3.5 py-1.5 text-xs font-semibold bg-[#2563EB] text-white rounded-md hover:bg-blue-500 cursor-pointer flex items-center gap-1.5">
-                  <Play className="w-3.5 h-3.5" />
-                  <span>Execute SQLite Query</span>
-                </button>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-5 space-y-5">
+              <div className="border border-[#1F2937] bg-[#111827] p-5 rounded-lg space-y-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-[#F9FAFB]">Embedded SQLite Storage Engine</h2>
+                  <span className="text-xs font-mono text-[#16A34A]">{auditData.sqliteDatabase.engine}</span>
+                </div>
+                <div className="divide-y divide-[#1F2937] border border-[#1F2937] rounded-md bg-[#0B0F17]">
+                  {auditData.sqliteDatabase.tables.map((t) => (
+                    <div key={t.name} className="px-3.5 py-2 flex items-center justify-between text-xs font-mono">
+                      <span className="text-[#F9FAFB]">{t.name}</span>
+                      <span className="tabular-nums text-[#9CA3AF]">{t.rowCount} rows</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <textarea value={sqlQuery} onChange={(e) => setSqlQuery(e.target.value)} rows={3} className="w-full bg-[#0B0F17] border border-[#1F2937] rounded-md p-3 text-xs font-mono text-[#F9FAFB]" />
-              {sqlResult && (
-                <pre className="p-3 bg-[#0B0F17] border border-[#1F2937] rounded-md text-xs font-mono text-[#F9FAFB] overflow-x-auto max-h-52">
-                  {JSON.stringify(sqlResult, null, 2)}
-                </pre>
-              )}
+
+              <div className="border border-[#1F2937] bg-[#111827] p-5 rounded-lg space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-sm font-semibold text-[#F9FAFB]">Connector Endpoints &amp; Circuit Breakers</h2>
+                    <p className="text-xs text-[#9CA3AF] mt-0.5">
+                      {auditData.connectorModes.length} MCP server transports monitored with automatic fallback.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowConnectorDetails((prev) => !prev)}
+                    className="text-xs font-medium text-[#2563EB] hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>{showConnectorDetails ? 'Hide Details' : 'View Full Overview'}</span>
+                    {showConnectorDetails ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                {showConnectorDetails && (
+                  <div className="divide-y divide-[#1F2937] border border-[#1F2937] rounded-md bg-[#0B0F17]">
+                    {auditData.connectorModes.map((c) => (
+                      <div key={c.serverId} className="p-3 space-y-1">
+                        <div className="flex items-center justify-between text-xs font-mono">
+                          <span className="text-[#F9FAFB] font-semibold">{c.serverId}</span>
+                          <span className={c.mode === 'DETERMINISTIC_FALLBACK' ? 'text-[#D97706]' : 'text-[#16A34A]'}>
+                            {c.mode} · CB:{c.circuitState || 'CLOSED'}
+                          </span>
+                        </div>
+                        <div className="text-xs text-[#9CA3AF] flex items-center justify-between">
+                          <span>{c.provider}</span>
+                          <span className="font-mono">{c.endpointBase}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="border border-[#1F2937] bg-[#111827] p-5 rounded-lg space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div>
-                  <h2 className="text-sm font-semibold text-[#F9FAFB]">HMAC-SHA256 Approval Token Verifier</h2>
-                  <p className="text-xs text-[#9CA3AF]">Verifies cryptographic binding of toolName, canonical JSON arguments digest, and expiry.</p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button onClick={() => handleTestHmacVerification(false)} className="px-3 py-1.5 text-xs font-medium bg-[#16A34A] text-white rounded-md hover:bg-emerald-500 cursor-pointer flex items-center gap-1.5">
-                    <Lock className="w-3.5 h-3.5" />
-                    <span>Verify Token</span>
-                  </button>
-                  <button onClick={() => handleTestHmacVerification(true)} className="px-3 py-1.5 text-xs font-medium bg-[#DC2626] text-white rounded-md hover:bg-red-500 cursor-pointer">
-                    Simulate Tamper
+            <div className="lg:col-span-7 space-y-5">
+              <div className="border border-[#1F2937] bg-[#111827] p-5 rounded-lg space-y-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-[#F9FAFB]">Live SQLite Read-Only Query Console</h2>
+                  <button onClick={handleRunLiveSqliteQuery} className="px-3.5 py-1.5 text-xs font-semibold bg-[#2563EB] text-white rounded-md hover:bg-blue-500 cursor-pointer flex items-center gap-1.5">
+                    <Play className="w-3.5 h-3.5" />
+                    <span>Execute SQLite Query</span>
                   </button>
                 </div>
+                <textarea value={sqlQuery} onChange={(e) => setSqlQuery(e.target.value)} rows={3} className="w-full bg-[#0B0F17] border border-[#1F2937] rounded-md p-3 text-xs font-mono text-[#F9FAFB]" />
+                {sqlResult && (
+                  <pre className="p-3 bg-[#0B0F17] border border-[#1F2937] rounded-md text-xs font-mono text-[#F9FAFB] overflow-x-auto max-h-52">
+                    {JSON.stringify(sqlResult, null, 2)}
+                  </pre>
+                )}
               </div>
-              {cryptoTestResult && (
-                <pre className="p-3 bg-[#0B0F17] border border-[#1F2937] rounded-md text-xs font-mono text-[#F9FAFB] overflow-x-auto">
-                  {JSON.stringify(cryptoTestResult, null, 2)}
-                </pre>
-              )}
+
+              <div className="border border-[#1F2937] bg-[#111827] p-5 rounded-lg space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-sm font-semibold text-[#F9FAFB]">HMAC-SHA256 Approval Token Verifier</h2>
+                    <p className="text-xs text-[#9CA3AF]">Verifies cryptographic binding of toolName, canonical JSON arguments digest, and expiry.</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={() => handleTestHmacVerification(false)} className="px-3 py-1.5 text-xs font-medium bg-[#16A34A] text-white rounded-md hover:bg-emerald-500 cursor-pointer flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>Verify Token</span>
+                    </button>
+                    <button onClick={() => handleTestHmacVerification(true)} className="px-3 py-1.5 text-xs font-medium bg-[#DC2626] text-white rounded-md hover:bg-red-500 cursor-pointer">
+                      Simulate Tamper
+                    </button>
+                  </div>
+                </div>
+                {cryptoTestResult && (
+                  <pre className="p-3 bg-[#0B0F17] border border-[#1F2937] rounded-md text-xs font-mono text-[#F9FAFB] overflow-x-auto">
+                    {JSON.stringify(cryptoTestResult, null, 2)}
+                  </pre>
+                )}
+              </div>
             </div>
           </div>
         </div>

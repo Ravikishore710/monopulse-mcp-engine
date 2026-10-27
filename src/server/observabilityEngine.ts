@@ -9,6 +9,8 @@ interface MetricCounterMap {
 const mcpToolCallCounters: MetricCounterMap = {};
 const httpRequestCounters: MetricCounterMap = {};
 const webhookIngestCounters: MetricCounterMap = {};
+const unhandledErrorCounters: MetricCounterMap = {};
+let totalUnhandledErrorsCount = 0;
 const mcpLatencySamples: number[] = [];
 const HISTOGRAM_BUCKETS = [5, 25, 100, 500];
 const mcpHistogramBucketCounts: Record<string, number> = {
@@ -24,6 +26,16 @@ let mcpLatencyCount = 0;
 export function incrementMcpToolMetric(toolName: string, status: string, role: string): void {
   const key = `tool="${toolName}",status="${status}",role="${role}"`;
   mcpToolCallCounters[key] = (mcpToolCallCounters[key] || 0) + 1;
+}
+
+export function incrementUnhandledErrorMetric(route: string, role = 'anonymous'): void {
+  totalUnhandledErrorsCount += 1;
+  const key = `route="${route}",role="${role}"`;
+  unhandledErrorCounters[key] = (unhandledErrorCounters[key] || 0) + 1;
+}
+
+export function getUnhandledErrorsTotal(): number {
+  return totalUnhandledErrorsCount;
 }
 
 export function recordMcpLatencyMs(latencyMs: number): void {
@@ -105,6 +117,15 @@ export function renderPrometheusMetrics(): string {
     lines.push(`monopulse_webhook_ingest_total{${labels}} ${count}`);
   }
 
+  lines.push(
+    '# HELP monopulse_unhandled_errors_total Total unhandled Express service errors tracked',
+    '# TYPE monopulse_unhandled_errors_total counter',
+    `monopulse_unhandled_errors_total ${totalUnhandledErrorsCount}`
+  );
+  for (const [labels, count] of Object.entries(unhandledErrorCounters)) {
+    lines.push(`monopulse_unhandled_errors_by_route_total{${labels}} ${count}`);
+  }
+
   try {
     const sqlite = getSqliteDatabaseSummary();
     lines.push(
@@ -114,7 +135,7 @@ export function renderPrometheusMetrics(): string {
     for (const tbl of sqlite.tables) {
       lines.push(`monopulse_sqlite_table_rows{table="${tbl.name}"} ${tbl.rowCount}`);
     }
-  } catch {
+  } catch (_sqliteErr: unknown) {
     // Ignore if SQLite is uninitialized
   }
 
@@ -192,7 +213,7 @@ export function registerSseClient(req: Request, res: Response): void {
   const heartbeat = setInterval(() => {
     try {
       res.write(`: heartbeat ${Date.now()}\n\n`);
-    } catch {
+    } catch (_writeErr: unknown) {
       clearInterval(heartbeat);
       sseClients.delete(res);
     }
@@ -217,7 +238,7 @@ export function broadcastSseEvent(eventType: string, payload: Record<string, unk
   for (const client of sseClients) {
     try {
       client.write(frame);
-    } catch {
+    } catch (_clientErr: unknown) {
       sseClients.delete(client);
     }
   }

@@ -2,6 +2,13 @@
 
 All notable changes to the **MonoPulse** project are documented in this file.
 
+## [1.4.0] - 2026-10-26
+### Added
+- **Enforced V8 Code Coverage Gate (`vitest.config.ts`, `.github/workflows/ci.yml`)**: Added `@vitest/coverage-v8` with enforced thresholds (`lines: 70%`, `branches: 60%`) and `npm run test:coverage` in CI.
+- **Guaranteed Offline Connector Isolation (`MONOPULSE_FORCE_SIMULATION`)**: Added `MONOPULSE_FORCE_SIMULATION=true` override at the top of `getConnectorStatusSummary` and `isSimulationModeActive` in `src/server/liveConnectors.ts` so test and CI runs never trigger outbound network calls regardless of ambient environment tokens.
+- **Express Error-Tracking Sink & Prometheus Counter (`src/server/app.ts`, `src/server/observabilityEngine.ts`)**: Added global Express error-handling middleware logging structured `pino` diagnostics (`errStack`, `route`, `callerRole`) and incrementing `monopulse_unhandled_errors_total` on `/api/metrics` without leaking stack traces in HTTP 500 responses.
+- **Security & Reproducibility Hardening (`.env.example`, `.github/workflows/ci.yml`)**: Added all runtime and connector environment variables (`ARGOCD_AUTH_TOKEN`, `ARGOCD_SERVER_URL`, `LOG_LEVEL`, `PORT`, `NODE_ENV`, `MONOPULSE_PREVIOUS_SECRET`, `DISABLE_HMR`, `VITEST`, `MONOPULSE_FORCE_SIMULATION`) to `.env.example` and added `npm audit --audit-level=high` to CI.
+
 ## [1.3.0] - 2026-10-26
 ### Added
 - **Kaggle GPU Telemetry Dashboard (`src/components/KaggleGpuDashboard.tsx`)**: Added real-time `Recharts` visualization inside `MemoryPanel` displaying NVIDIA T4x2 SM & VRAM utilization, kernel execution throughput (`trajectories/sec`), and step-distillation success rates across `15m`, `1h`, and `24h` windows.

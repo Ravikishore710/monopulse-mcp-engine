@@ -24,12 +24,15 @@ const COOLDOWN_MS = 30_000;
 let simulationModeActive = false;
 
 export function isSimulationModeActive(): boolean {
+  if (process.env.MONOPULSE_FORCE_SIMULATION === 'true') {
+    return true;
+  }
   return simulationModeActive;
 }
 
 export function setSimulationModeActive(enabled: boolean): boolean {
   simulationModeActive = Boolean(enabled);
-  return simulationModeActive;
+  return isSimulationModeActive();
 }
 
 export function getConnectorCircuitState(serverId: string): CircuitBreakerRecord {
@@ -68,7 +71,7 @@ export async function executeWithRetryAndCircuitBreaker<T>(
   fallback: () => T,
   maxRetries = 2
 ): Promise<{ data: T; liveExecuted: boolean; attempts: number; circuitState: string }> {
-  if (simulationModeActive) {
+  if (isSimulationModeActive()) {
     return {
       data: fallback(),
       liveExecuted: false,
@@ -96,7 +99,7 @@ export async function executeWithRetryAndCircuitBreaker<T>(
         attempts: attempt,
         circuitState: 'CLOSED'
       };
-    } catch {
+    } catch (_retryErr: unknown) {
       if (attempt < maxRetries) {
         const baseDelay = 25 * Math.pow(2, attempt - 1);
         const jitter = Math.floor(Math.random() * 15);
@@ -115,9 +118,11 @@ export async function executeWithRetryAndCircuitBreaker<T>(
 }
 
 export function getConnectorStatusSummary(): ConnectorStatus[] {
-  const ghLive = !simulationModeActive && Boolean(process.env.GITHUB_TOKEN);
-  const slackLive = !simulationModeActive && Boolean(process.env.SLACK_BOT_TOKEN);
-  const jiraLive = !simulationModeActive && Boolean(process.env.JIRA_API_TOKEN);
+  const forceSim = process.env.MONOPULSE_FORCE_SIMULATION === 'true' || simulationModeActive;
+  const ghLive = !forceSim && Boolean(process.env.GITHUB_TOKEN);
+  const slackLive = !forceSim && Boolean(process.env.SLACK_BOT_TOKEN);
+  const jiraLive = !forceSim && Boolean(process.env.JIRA_API_TOKEN);
+  const argoLive = !forceSim && Boolean(process.env.ARGOCD_AUTH_TOKEN);
   const raw = [
     {
       serverId: 'sql-ops-mcp',
@@ -133,7 +138,7 @@ export function getConnectorStatusSummary(): ConnectorStatus[] {
         | 'LIVE_REST_API'
         | 'DETERMINISTIC_FALLBACK',
       envVarConfigured: Boolean(process.env.GITHUB_TOKEN),
-      endpointBase: simulationModeActive ? 'mock://github-sandbox' : 'https://api.github.com'
+      endpointBase: forceSim ? 'mock://github-sandbox' : 'https://api.github.com'
     },
     {
       serverId: 'slack-mcp',
@@ -142,7 +147,7 @@ export function getConnectorStatusSummary(): ConnectorStatus[] {
         | 'LIVE_REST_API'
         | 'DETERMINISTIC_FALLBACK',
       envVarConfigured: Boolean(process.env.SLACK_BOT_TOKEN),
-      endpointBase: simulationModeActive ? 'mock://slack-sandbox' : 'https://slack.com/api'
+      endpointBase: forceSim ? 'mock://slack-sandbox' : 'https://slack.com/api'
     },
     {
       serverId: 'jira-mcp',
@@ -151,7 +156,7 @@ export function getConnectorStatusSummary(): ConnectorStatus[] {
         | 'LIVE_REST_API'
         | 'DETERMINISTIC_FALLBACK',
       envVarConfigured: Boolean(process.env.JIRA_API_TOKEN),
-      endpointBase: simulationModeActive
+      endpointBase: forceSim
         ? 'mock://jira-sandbox'
         : process.env.JIRA_BASE_URL || 'https://api.atlassian.com'
     },
@@ -165,11 +170,13 @@ export function getConnectorStatusSummary(): ConnectorStatus[] {
     {
       serverId: 'infra-deploy-mcp',
       provider: 'ArgoCD & Feature-Flag Control Plane',
-      mode: (process.env.ARGOCD_AUTH_TOKEN ? 'LIVE_REST_API' : 'SQLITE_EMBEDDED_ENGINE') as
+      mode: (argoLive ? 'LIVE_REST_API' : 'SQLITE_EMBEDDED_ENGINE') as
         | 'LIVE_REST_API'
         | 'SQLITE_EMBEDDED_ENGINE',
       envVarConfigured: Boolean(process.env.ARGOCD_AUTH_TOKEN),
-      endpointBase: process.env.ARGOCD_SERVER_URL || 'internal://argocd-controller'
+      endpointBase: forceSim
+        ? 'mock://argocd-sandbox'
+        : process.env.ARGOCD_SERVER_URL || 'internal://argocd-controller'
     }
   ];
 

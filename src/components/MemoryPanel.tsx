@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import {
   KaggleDistillationJob,
   PgVectorPlaybook,
@@ -33,6 +34,9 @@ export function MemoryPanel({
   const [distillSummary, setDistillSummary] = useState<string>(
     'Distill multi-step PgBouncer lock contention trajectory into a zero-question ambient playbook skill.'
   );
+  const [expandedPlaybooks, setExpandedPlaybooks] = useState<Record<string, boolean>>({});
+  const [expandedRedisKeys, setExpandedRedisKeys] = useState<Record<string, boolean>>({});
+  const [showPromptPreview, setShowPromptPreview] = useState<boolean>(false);
 
   const handleRunSemanticSearch = async (overrideQuery?: string) => {
     setSearchingMemory(true);
@@ -85,7 +89,7 @@ export function MemoryPanel({
           Operational Runbooks &amp; Playbook Library
         </h1>
         <p className="text-xs text-[#9CA3AF] mt-1">
-          Semantic pgvector playbook retrieval, Tier-1 Redis session context, and automated runbook distillation from resolved incident trajectories.
+          Executive runbook summaries, semantic pgvector playbook retrieval, and automated trajectory distillation.
         </p>
       </div>
 
@@ -94,9 +98,14 @@ export function MemoryPanel({
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         <div className="xl:col-span-7 border border-[#1F2937] bg-[#111827] rounded-lg p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-[#F9FAFB]">
-              Tier-2 pgvector Semantic Similarity Search &amp; Prompt Skill Injector
-            </h2>
+            <div>
+              <h2 className="text-sm font-semibold text-[#F9FAFB]">
+                Tier-2 pgvector Semantic Similarity Search &amp; Prompt Skill Injector
+              </h2>
+              <p className="text-xs text-[#9CA3AF] mt-0.5">
+                Matches incoming incident symptoms against verified operational runbooks using 768-D embeddings.
+              </p>
+            </div>
             <span className="text-xs font-mono text-[#9CA3AF]">gemini-embedding-2-preview</span>
           </div>
 
@@ -152,38 +161,47 @@ export function MemoryPanel({
           </div>
 
           {semanticSearchRes && (
-            <div className="space-y-3 pt-2 border-t border-[#1F2937]">
-              <div className="text-xs font-mono text-[#9CA3AF] tabular-nums">
-                Model: {semanticSearchRes.embeddingModelUsed} · Query Vector [0..7]: [
-                {semanticSearchRes.queryVectorPreview?.join(', ')}]
+            <div className="space-y-3 pt-3 border-t border-[#1F2937]">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="text-[#9CA3AF]">
+                  Matched {semanticSearchRes.matches?.length || 0} runbooks via <span className="font-mono text-[#F9FAFB]">{semanticSearchRes.embeddingModelUsed}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowPromptPreview((prev) => !prev)}
+                  className="text-xs font-medium text-[#2563EB] hover:underline cursor-pointer"
+                >
+                  {showPromptPreview
+                    ? 'Hide Dynamically Constructed System Prompt Preview'
+                    : 'View Dynamically Constructed System Prompt Preview'}
+                </button>
               </div>
-              <div className="space-y-2">
+
+              <div className="divide-y divide-[#1F2937] border border-[#1F2937] rounded-md bg-[#0B0F17]">
                 {semanticSearchRes.matches?.map((m: any) => (
                   <div
                     key={m.playbook.id}
-                    className="p-3 rounded border border-[#1F2937] bg-[#0B0F17] flex items-center justify-between text-xs font-mono"
+                    className="p-3 flex items-center justify-between text-xs"
                   >
                     <div>
-                      <span className="text-[#F9FAFB] font-semibold">{m.playbook.id}</span>
+                      <span className="font-mono text-[#2563EB] font-semibold">{m.playbook.id}</span>
                       <span className="mx-2 text-[#9CA3AF]">·</span>
-                      <span className="text-[#9CA3AF] font-sans">{m.playbook.title}</span>
+                      <span className="text-[#F9FAFB] font-medium">{m.playbook.title}</span>
                     </div>
-                    <div className="tabular-nums shrink-0">
+                    <div className="font-mono tabular-nums shrink-0">
                       <span className="text-[#16A34A]">sim={m.cosineSimilarity}</span>
                       <span className="mx-2 text-[#9CA3AF]">·</span>
-                      <span>-{m.playbook.stepReductionPct}% steps</span>
+                      <span className="text-[#9CA3AF]">-{m.playbook.stepReductionPct}% steps</span>
                     </div>
                   </div>
                 ))}
               </div>
-              <div>
-                <div className="text-xs font-semibold text-[#9CA3AF] mb-1">
-                  Dynamically Constructed System Prompt Preview:
-                </div>
+
+              {showPromptPreview && (
                 <pre className="p-3 rounded bg-[#0B0F17] border border-[#1F2937] text-[11px] font-mono text-[#F9FAFB] overflow-x-auto whitespace-pre-wrap">
                   {semanticSearchRes.constructedSystemPrompt}
                 </pre>
-              </div>
+              )}
             </div>
           )}
         </div>
@@ -196,7 +214,7 @@ export function MemoryPanel({
             <span className="text-xs font-mono text-[#D97706]">NVIDIA_T4_X2</span>
           </div>
           <p className="text-xs text-[#9CA3AF] leading-relaxed">
-            Offloads batch trajectory distillation and high-dimensional vectorization to Kaggle GPU kernels, converting raw multi-step traces into deterministic Markdown skills.
+            Offloads batch trajectory distillation to Kaggle GPU kernels, converting multi-step incident traces into reusable runbooks.
           </p>
 
           <div className="space-y-3">
@@ -238,94 +256,121 @@ export function MemoryPanel({
             <div className="text-xs font-semibold text-[#9CA3AF]">
               Recent Kaggle GPU Distillation Jobs ({kaggleGpuJobs.length})
             </div>
-            {kaggleGpuJobs.slice(0, 3).map((job) => (
-              <div
-                key={job.jobId}
-                className="p-3 rounded border border-[#1F2937] bg-[#0B0F17] text-xs font-mono space-y-1"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-[#F9FAFB] font-semibold">{job.jobId}</span>
-                  <span className="text-[#16A34A] tabular-nums">
-                    {job.rawStepCount} → {job.distilledStepCount} steps (-{job.stepReductionPct}%)
-                  </span>
+            <div className="divide-y divide-[#1F2937] border border-[#1F2937] rounded-md bg-[#0B0F17]">
+              {kaggleGpuJobs.slice(0, 3).map((job) => (
+                <div key={job.jobId} className="p-3 text-xs space-y-1">
+                  <div className="flex items-center justify-between font-mono">
+                    <span className="text-[#F9FAFB] font-semibold">{job.extractedPlaybookId}</span>
+                    <span className="text-[#16A34A] tabular-nums">
+                      {job.rawStepCount} → {job.distilledStepCount} steps (-{job.stepReductionPct}%)
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-[#9CA3AF] font-mono truncate">
+                    {job.jobId} · {job.accelerator} · {job.computeDurationMs}ms
+                  </div>
                 </div>
-                <div className="text-[11px] text-[#9CA3AF] truncate">
-                  Kernel: {job.kernelSlug} · {job.accelerator} · {job.computeDurationMs}ms
-                </div>
-                <div className="text-[11px] text-[#2563EB]">
-                  Extracted Skill: {job.extractedPlaybookId}
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         <div className="xl:col-span-7 border border-[#1F2937] bg-[#111827] rounded-lg p-5 space-y-3">
-          <div className="text-sm font-semibold text-[#F9FAFB]">
-            Tier-2 PostgreSQL / pgvector Playbook Vault ({pgvectorPlaybooks.length} Skills Indexed)
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-[#F9FAFB]">
+              Tier-2 PostgreSQL / pgvector Playbook Vault ({pgvectorPlaybooks.length} Skills Indexed)
+            </h2>
+            <span className="text-xs text-[#9CA3AF]">Click any runbook to expand full Markdown procedure</span>
           </div>
-          <div className="space-y-3">
-            {pgvectorPlaybooks.map((pb) => (
-              <div
-                key={pb.id}
-                className="p-4 rounded border border-[#1F2937] bg-[#0B0F17] space-y-2"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
-                  <span className="text-[#2563EB] font-semibold">{pb.id}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="tabular-nums text-[#16A34A]">
-                      Steps: {pb.baselineStepsWithoutPlaybook} → {pb.distilledStepsWithPlaybook} (-
-                      {pb.stepReductionPct}%) · Used {pb.usageCount}x
-                    </span>
+          <div className="divide-y divide-[#1F2937] border border-[#1F2937] rounded-lg bg-[#0B0F17]">
+            {pgvectorPlaybooks.map((pb) => {
+              const isExpanded = Boolean(expandedPlaybooks[pb.id]);
+              return (
+                <div key={pb.id} className="p-4 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[#2563EB] font-semibold">{pb.id}</span>
+                      <span className="text-[#9CA3AF]">·</span>
+                      <span className="text-sm font-semibold text-[#F9FAFB]">{pb.title}</span>
+                    </div>
+                    <div className="flex items-center gap-2 font-mono">
+                      <span className="tabular-nums text-[#16A34A]">
+                        -{pb.stepReductionPct}% steps ({pb.usageCount}x)
+                      </span>
+                      <button
+                        onClick={() => handlePlaybookVote(pb.id, 'up')}
+                        className="px-2 py-0.5 rounded border border-[#1F2937] bg-[#111827] hover:border-emerald-500 text-[11px] text-[#9CA3AF] hover:text-emerald-400 cursor-pointer"
+                      >
+                        Upvote
+                      </button>
+                      <button
+                        onClick={() => handlePlaybookVote(pb.id, 'down')}
+                        className="px-2 py-0.5 rounded border border-[#1F2937] bg-[#111827] hover:border-amber-500 text-[11px] text-[#9CA3AF] hover:text-amber-400 cursor-pointer"
+                      >
+                        Downvote
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#9CA3AF]">
+                    <span>Summary Trigger: {pb.triggerSignature}</span>
                     <button
-                      onClick={() => handlePlaybookVote(pb.id, 'up')}
-                      className="px-2 py-0.5 rounded border border-[#1F2937] bg-[#111827] hover:border-emerald-500 text-[11px] text-[#9CA3AF] hover:text-emerald-400 cursor-pointer"
+                      type="button"
+                      onClick={() => setExpandedPlaybooks((prev) => ({ ...prev, [pb.id]: !prev[pb.id] }))}
+                      className="text-xs font-medium text-[#2563EB] hover:underline flex items-center gap-1 cursor-pointer"
                     >
-                      Upvote
-                    </button>
-                    <button
-                      onClick={() => handlePlaybookVote(pb.id, 'down')}
-                      className="px-2 py-0.5 rounded border border-[#1F2937] bg-[#111827] hover:border-amber-500 text-[11px] text-[#9CA3AF] hover:text-amber-400 cursor-pointer"
-                    >
-                      Downvote
+                      <span>{isExpanded ? 'Hide Full Runbook' : 'View Full Runbook'}</span>
+                      {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                     </button>
                   </div>
+
+                  {isExpanded && (
+                    <pre className="p-3 bg-[#111827] rounded border border-[#1F2937] text-[11px] font-mono text-[#F9FAFB]/90 overflow-x-auto whitespace-pre-wrap mt-2">
+                      {pb.markdownSkill}
+                    </pre>
+                  )}
                 </div>
-                <div className="text-sm font-semibold text-[#F9FAFB]">{pb.title}</div>
-                <div className="text-xs font-mono text-[#9CA3AF]">
-                  Trigger: {pb.triggerSignature}
-                </div>
-                <pre className="p-3 bg-[#111827] rounded border border-[#1F2937] text-[11px] font-mono text-[#9CA3AF] overflow-x-auto whitespace-pre-wrap">
-                  {pb.markdownSkill}
-                </pre>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
         <div className="xl:col-span-5 border border-[#1F2937] bg-[#111827] rounded-lg p-5 space-y-3">
-          <div className="text-sm font-semibold text-[#F9FAFB]">
-            Tier-1 Redis Hot Session &amp; Approval Lock Store ({redisTier1.length} Keys)
+          <div>
+            <h2 className="text-sm font-semibold text-[#F9FAFB]">
+              Tier-1 Redis Hot Session &amp; Approval Lock Store ({redisTier1.length} Keys)
+            </h2>
+            <p className="text-xs text-[#9CA3AF] mt-0.5">
+              Ephemeral session locks preventing duplicate incident remediations.
+            </p>
           </div>
-          <div className="space-y-2.5">
-            {redisTier1.map((entry) => (
-              <div
-                key={entry.key}
-                className="p-3.5 rounded border border-[#1F2937] bg-[#0B0F17] space-y-1.5 text-xs font-mono"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-[#F9FAFB] font-semibold truncate">{entry.key}</span>
-                  <span className="text-[#D97706] tabular-nums shrink-0">
-                    TTL {entry.ttlSeconds}s
-                  </span>
+          <div className="divide-y divide-[#1F2937] border border-[#1F2937] rounded-lg bg-[#0B0F17]">
+            {redisTier1.map((entry) => {
+              const isOpen = Boolean(expandedRedisKeys[entry.key]);
+              return (
+                <div key={entry.key} className="p-3.5 space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between gap-2 font-mono">
+                    <span className="text-[#F9FAFB] font-semibold truncate">{entry.key}</span>
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <span className="text-[#D97706] tabular-nums">TTL {entry.ttlSeconds}s</span>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedRedisKeys((prev) => ({ ...prev, [entry.key]: !prev[entry.key] }))}
+                        className="text-[11px] text-[#2563EB] hover:underline cursor-pointer"
+                      >
+                        {isOpen ? 'Hide JSON' : 'View JSON'}
+                      </button>
+                    </div>
+                  </div>
+                  {isOpen && (
+                    <pre className="p-2.5 bg-[#111827] border border-[#1F2937] rounded text-[11px] font-mono text-[#9CA3AF] overflow-x-auto">
+                      {JSON.stringify(entry.value, null, 2)}
+                    </pre>
+                  )}
                 </div>
-                <pre className="text-[11px] text-[#9CA3AF] overflow-x-auto">
-                  {JSON.stringify(entry.value, null, 2)}
-                </pre>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

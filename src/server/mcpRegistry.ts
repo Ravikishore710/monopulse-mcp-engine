@@ -28,7 +28,7 @@ function recordWireFrame(frame: MCPWireFrame) {
   }
   try {
     recordSqliteAuditFrame(frame);
-  } catch {
+  } catch (_sqliteErr: unknown) {
     // Non-fatal in case SQLite is closing
   }
 }

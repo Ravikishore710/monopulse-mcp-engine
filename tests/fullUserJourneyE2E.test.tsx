@@ -55,116 +55,75 @@ beforeEach(() => {
       }
     }
     if (init?.body && typeof init.body === 'string') {
-      try {
-        req = req.send(JSON.parse(init.body));
-      } catch {
-        req = req.send(init.body);
-      }
+      try { req = req.send(JSON.parse(init.body)); }
+      catch (_err: unknown) { req = req.send(init.body); }
     }
-
     const res = await req;
     const isJson = (res.headers['content-type'] || '').includes('application/json');
     return {
       ok: res.status >= 200 && res.status < 300,
       status: res.status,
-      headers: {
-        get: (name: string) => res.headers[name.toLowerCase()] || null
-      },
+      headers: { get: (name: string) => res.headers[name.toLowerCase()] || null },
       json: async () => (isJson ? res.body : JSON.parse(res.text || '{}')),
       text: async () => res.text || JSON.stringify(res.body)
     } as unknown as Response;
   });
 });
 
-afterEach(() => {
-  cleanup();
-});
+afterEach(() => { cleanup(); });
 
 describe('Full Real-User End-to-End Journey Across All 5 Pages & Backend Services', () => {
   it('1. Navigates all 5 pages in <App />, switches themes, uses Command Palette (⌘K), changes RBAC roles, and triggers New Incident', async () => {
     const view = render(<App />);
+    await waitFor(() => { expect(view.container.textContent).toContain('Incident Triage & Remediation Queue'); });
 
-    await waitFor(() => {
-      expect(view.container.textContent).toContain('Incident Triage & Remediation Queue');
-    });
-
-    // Verify 4-column Operational Telemetry Strip is rendered
     expect(view.container.textContent).toContain('Tracked Incidents');
     expect(view.container.textContent).toContain('Pending Approvals');
     expect(view.container.textContent).toContain('Connected Integrations');
     expect(view.container.textContent).toContain('Audit Ledger Frames');
 
-    // Toggle Dark -> Light -> Dark theme
     const themeToggleBtn = view.getByLabelText('Toggle Theme');
     fireEvent.click(themeToggleBtn);
     expect(document.documentElement.classList.contains('light')).toBe(true);
-
     fireEvent.click(themeToggleBtn);
     expect(document.documentElement.classList.contains('light')).toBe(false);
 
-    // Open Command Palette via ⌘K button and filter commands
     const cmdBtn = view.getByLabelText('Open Command Palette');
     fireEvent.click(cmdBtn);
+    await waitFor(() => { expect(view.container.textContent).toContain('Simulation Mode (Safe Sandbox Isolation)'); });
 
-    await waitFor(() => {
-      expect(view.container.textContent).toContain('Simulation Mode (Safe Sandbox Isolation)');
-    });
-
-    const paletteInput = view.getByPlaceholderText(
-      /Type a command/i
-    );
+    const paletteInput = view.getByPlaceholderText(/Type a command/i);
     fireEvent.change(paletteInput, { target: { value: 'Playbooks' } });
     fireEvent.keyDown(paletteInput, { key: 'Enter' });
+    await waitFor(() => { expect(view.container.textContent).toContain('Operational Runbooks & Playbook Library'); });
 
-    await waitFor(() => {
-      expect(view.container.textContent).toContain('Operational Runbooks & Playbook Library');
-    });
-
-    // Click through all 5 primary navigation tabs
     const navLabels = [
       { btnText: 'Workspace', expectedHeading: 'Unified Operations Workspace' },
       { btnText: 'Integrations', expectedHeading: 'Integrations & Custom Connector Hub' },
       { btnText: 'Audit & Settings', expectedHeading: 'Compliance Audit, CLI & System Settings' },
       { btnText: 'Incidents', expectedHeading: 'Incident Triage & Remediation Queue' }
     ];
-
     for (const nav of navLabels) {
-      const navBtn = Array.from(view.container.querySelectorAll('header nav button')).find(
-        (b) => b.textContent === nav.btnText
-      );
+      const navBtn = Array.from(view.container.querySelectorAll('header nav button')).find((b) => b.textContent === nav.btnText);
       expect(navBtn).toBeDefined();
       fireEvent.click(navBtn!);
-      await waitFor(() => {
-        expect(view.container.textContent).toContain(nav.expectedHeading);
-      });
+      await waitFor(() => { expect(view.container.textContent).toContain(nav.expectedHeading); });
     }
 
-    // Trigger "New Incident" quick action from the header bar
-    const newIncidentBtn = Array.from(view.container.querySelectorAll('header button')).find((b) =>
-      b.textContent?.includes('New Incident')
-    );
+    const newIncidentBtn = Array.from(view.container.querySelectorAll('header button')).find((b) => b.textContent?.includes('New Incident'));
     expect(newIncidentBtn).toBeDefined();
     fireEvent.click(newIncidentBtn!);
-
-    await waitFor(() => {
-      expect(view.container.textContent).toContain('Incident Triage & Remediation Queue');
-    });
+    await waitFor(() => { expect(view.container.textContent).toContain('Incident Triage & Remediation Queue'); });
   });
 
   it('2. Exercises Incidents Page: filtering, inline JSON parameter validation error recovery, 2-person quorum signing, and 1-Click Approval', async () => {
     const view = render(<App />);
-    await waitFor(() => {
-      expect(view.container.textContent).toContain('Incident Triage & Remediation Queue');
-    });
+    await waitFor(() => { expect(view.container.textContent).toContain('Incident Triage & Remediation Queue'); });
 
-    const pendingFilterBtn = Array.from(view.container.querySelectorAll('button')).find(
-      (b) => b.textContent === 'Pending Approval'
-    );
+    const pendingFilterBtn = Array.from(view.container.querySelectorAll('button')).find((b) => b.textContent === 'Pending');
     fireEvent.click(pendingFilterBtn!);
 
-    const allFilterBtn = Array.from(view.container.querySelectorAll('button')).find(
-      (b) => b.textContent === 'All'
-    );
+    const allFilterBtn = Array.from(view.container.querySelectorAll('button')).find((b) => b.textContent === 'All');
     fireEvent.click(allFilterBtn!);
 
     const searchInput = view.getByPlaceholderText('Search service or ticket...');
@@ -172,10 +131,7 @@ describe('Full Real-User End-to-End Journey Across All 5 Pages & Backend Service
     expect(view.container.textContent).toContain('checkout-ledger-svc');
     fireEvent.change(searchInput, { target: { value: '' } });
 
-    // Click "Edit Parameters" and test invalid JSON handling
-    const editBtn = Array.from(view.container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Edit Parameters')
-    );
+    const editBtn = Array.from(view.container.querySelectorAll('button')).find((b) => b.textContent?.includes('Edit Parameters'));
     expect(editBtn).toBeDefined();
     fireEvent.click(editBtn!);
 
@@ -183,51 +139,28 @@ describe('Full Real-User End-to-End Journey Across All 5 Pages & Backend Service
     expect(textareas.length).toBeGreaterThan(0);
     fireEvent.change(textareas[0], { target: { value: '{ broken_json: true ' } });
 
-    const approveEditedBtn = Array.from(view.container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Approve & Execute Edited Actions')
-    );
+    const approveEditedBtn = Array.from(view.container.querySelectorAll('button')).find((b) => b.textContent?.includes('Approve & Execute Edited Actions'));
     fireEvent.click(approveEditedBtn!);
+    await waitFor(() => { expect(view.container.textContent).toContain('Invalid JSON in edited parameters'); });
 
-    await waitFor(() => {
-      expect(view.container.textContent).toContain('Invalid JSON in edited parameters');
-    });
-
-    const cancelEditBtn = Array.from(view.container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Cancel Edit')
-    );
+    const cancelEditBtn = Array.from(view.container.querySelectorAll('button')).find((b) => b.textContent?.includes('Cancel Edit'));
     fireEvent.click(cancelEditBtn!);
 
-    // Co-sign M-of-N Quorum with 2 distinct operators
-    const signQuorumBtn = Array.from(view.container.querySelectorAll('button')).find(
-      (b) => b.textContent === 'Sign Quorum'
-    );
+    const signQuorumBtn = Array.from(view.container.querySelectorAll('button')).find((b) => b.textContent === 'Sign Quorum');
     expect(signQuorumBtn).toBeDefined();
     fireEvent.click(signQuorumBtn!);
-
-    await waitFor(() => {
-      expect(view.container.textContent).toContain('1/2');
-    });
+    await waitFor(() => { expect(view.container.textContent).toContain('1/2'); });
 
     const selects = view.container.querySelectorAll('select');
-    const quorumSelect = Array.from(selects).find((s) =>
-      s.innerHTML.includes('sre_oncall_dana')
-    );
+    const quorumSelect = Array.from(selects).find((s) => s.innerHTML.includes('sre_oncall_dana'));
     expect(quorumSelect).toBeDefined();
     fireEvent.change(quorumSelect!, { target: { value: 'sre_oncall_dana' } });
     fireEvent.click(signQuorumBtn!);
+    await waitFor(() => { expect(view.container.textContent).toContain('QUORUM MET'); });
 
-    await waitFor(() => {
-      expect(view.container.textContent).toContain('QUORUM MET');
-    });
-
-    const approveBtn = Array.from(view.container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Approve & Execute Remediation')
-    );
+    const approveBtn = Array.from(view.container.querySelectorAll('button')).find((b) => b.textContent?.includes('Approve & Execute Remediation'));
     fireEvent.click(approveBtn!);
-
-    await waitFor(() => {
-      expect(view.container.textContent).toMatch(/Approved and executed|already been approved/i);
-    });
+    await waitFor(() => { expect(view.container.textContent).toMatch(/Approved and executed|already been approved/i); });
   });
 
   it('3. Exercises Workspace Page: switches bridged channels, switches personas, posts incident alert, and jumps to Incidents', async () => {

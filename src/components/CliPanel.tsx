@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { MCPWireFrame, RBACRole } from '../types/monopulse.ts';
 
 interface CliPanelProps {
@@ -11,6 +12,7 @@ export function CliPanel({ wireLog, callerRole, onRefreshState }: CliPanelProps)
   const [cliInput, setCliInput] = useState<string>('monopulse mcp list');
   const [wireFilterStatus, setWireFilterStatus] = useState<string>('ALL');
   const [wireSearch, setWireSearch] = useState<string>('');
+  const [expandedFrames, setExpandedFrames] = useState<Record<string, boolean>>({});
   const [cliHistory, setCliHistory] = useState<
     { command: string; exitCode: number; output: string; timestamp: string }[]
   >([
@@ -72,18 +74,18 @@ Type or click a preset command below to execute directly against the backend JSO
   return (
     <div className="space-y-6">
       <div className="border-b border-[#1F2937] pb-4">
-        <h1 className="text-xl font-bold text-[#F9FAFB] font-display">
-          04. Live CLI Harness &amp; JSON-RPC 2.0 Wire Frame Inspector
-        </h1>
+        <h2 className="text-lg font-bold text-[#F9FAFB] font-display">
+          Live CLI Harness &amp; JSON-RPC 2.0 Wire Frame Inspector
+        </h2>
         <p className="text-xs text-[#9CA3AF] mt-1">
-          Execute headless MonoPulse CLI commands against the backend engine and filter raw JSON-RPC 2.0 protocol frames.
+          Execute headless MonoPulse CLI commands against the backend engine and inspect protocol wire frames on demand.
         </p>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
         <div className="xl:col-span-7 border border-[#1F2937] bg-[#111827] rounded-lg p-5 space-y-4">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-[#9CA3AF]">Quick CLI Commands:</span>
+            <span className="text-xs text-[#9CA3AF]">Quick CLI Presets:</span>
             {[
               'monopulse mcp list',
               'monopulse rbac test-unauthorized',
@@ -149,9 +151,9 @@ Type or click a preset command below to execute directly against the backend JSO
 
         <div className="xl:col-span-5 border border-[#1F2937] bg-[#111827] rounded-lg p-5 space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-[#F9FAFB]">
+            <h3 className="text-sm font-semibold text-[#F9FAFB]">
               JSON-RPC 2.0 Protocol Wire Frames ({filteredWireLog.length}/{wireLog.length})
-            </h2>
+            </h3>
             <span className="text-xs font-mono text-[#9CA3AF]">stdio/http-rpc</span>
           </div>
 
@@ -188,28 +190,38 @@ Type or click a preset command below to execute directly against the backend JSO
               </button>
             </div>
           ) : (
-            <div className="space-y-2.5 max-h-[520px] overflow-y-auto">
-              {filteredWireLog.map((wf) => (
-                <div
-                  key={wf.frameId}
-                  className="p-3 rounded border border-[#1F2937] bg-[#0B0F17] text-xs font-mono space-y-1.5"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[#F9FAFB] font-semibold">{wf.toolName}</span>
-                    <span
-                      className={wf.status === 'SUCCESS' ? 'text-[#16A34A]' : 'text-[#DC2626]'}
-                    >
-                      {wf.status} · {wf.latencyMs}ms
-                    </span>
+            <div className="divide-y divide-[#1F2937] border border-[#1F2937] rounded-md bg-[#0B0F17] max-h-[520px] overflow-y-auto">
+              {filteredWireLog.map((wf) => {
+                const isExpanded = Boolean(expandedFrames[wf.frameId]);
+                return (
+                  <div key={wf.frameId} className="p-3.5 text-xs space-y-1.5">
+                    <div className="flex items-center justify-between font-mono">
+                      <span className="text-[#F9FAFB] font-semibold">{wf.toolName}</span>
+                      <span
+                        className={wf.status === 'SUCCESS' ? 'text-[#16A34A]' : 'text-[#DC2626]'}
+                      >
+                        {wf.status} · {wf.latencyMs}ms
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] font-mono text-[#9CA3AF]">
+                      <span>{wf.serverId} · role={wf.callerRole} · {wf.frameId}</span>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedFrames((prev) => ({ ...prev, [wf.frameId]: !prev[wf.frameId] }))}
+                        className="text-[#2563EB] hover:underline flex items-center gap-0.5 cursor-pointer"
+                      >
+                        <span>{isExpanded ? 'Hide Payload' : 'View Payload'}</span>
+                        {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                      </button>
+                    </div>
+                    {isExpanded && (
+                      <pre className="p-2.5 bg-[#111827] border border-[#1F2937] rounded text-[11px] font-mono text-[#9CA3AF] overflow-x-auto mt-1">
+                        {JSON.stringify({ req: wf.requestPayload, res: wf.responsePayload }, null, 2)}
+                      </pre>
+                    )}
                   </div>
-                  <div className="text-[11px] text-[#9CA3AF]">
-                    {wf.serverId} · role={wf.callerRole} · {wf.frameId}
-                  </div>
-                  <pre className="p-2 bg-[#111827] rounded text-[11px] text-[#9CA3AF] overflow-x-auto">
-                    {JSON.stringify({ req: wf.requestPayload, res: wf.responsePayload }, null, 2)}
-                  </pre>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

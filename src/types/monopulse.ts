@@ -99,7 +99,8 @@ export interface AmbientEventRecord {
   }[];
   rootCauseSynthesis: string;
   approvalToken: string;
-  approvalState: 'STAGED_1CLICK_READY' | 'APPROVED_AND_EXECUTED' | 'EDITED_AND_EXECUTED';
+  approvalState: 'STAGED_1CLICK_READY' | 'IN_PROGRESS' | 'APPROVED_AND_EXECUTED' | 'EDITED_AND_EXECUTED';
+  status?: string;
   stagedMutations: StagedMutationAction[];
   approvedByRole?: RBACRole;
   approvedAt?: string;

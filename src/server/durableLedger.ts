@@ -10,7 +10,7 @@ export function ensureDurableLedgerTables(): void {
     try {
       db.prepare('SELECT 1 FROM audit_hash_chain LIMIT 1').get();
       return;
-    } catch {
+    } catch (_err: unknown) {
       ledgerInitialized = false;
     }
   }
@@ -209,7 +209,7 @@ export function getStepCheckpoint(
   if (!row) return null;
   try {
     return JSON.parse(String(row.output_json));
-  } catch {
+  } catch (_err: unknown) {
     return null;
   }
 }

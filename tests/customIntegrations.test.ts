@@ -58,4 +58,38 @@ describe('Custom Integrations & Multi-Platform Connector Hub (/api/integrations)
     expect(deleteRes.status).toBe(200);
     expect(deleteRes.body.deletedId).toBe(createdId);
   });
+
+  it('guarantees connectorMode is never LIVE_REST_API when MONOPULSE_FORCE_SIMULATION=true regardless of ambient tokens', async () => {
+    const prevForce = process.env.MONOPULSE_FORCE_SIMULATION;
+    const prevGh = process.env.GITHUB_TOKEN;
+    const prevSlack = process.env.SLACK_BOT_TOKEN;
+    const prevJira = process.env.JIRA_API_TOKEN;
+    const prevArgo = process.env.ARGOCD_AUTH_TOKEN;
+
+    try {
+      process.env.MONOPULSE_FORCE_SIMULATION = 'true';
+      process.env.GITHUB_TOKEN = 'ghp_ambient_token_should_be_ignored';
+      process.env.SLACK_BOT_TOKEN = 'xoxb-ambient-token-should-be-ignored';
+      process.env.JIRA_API_TOKEN = 'jira-ambient-token-should-be-ignored';
+      process.env.ARGOCD_AUTH_TOKEN = 'argo-ambient-token-should-be-ignored';
+
+      const { getConnectorStatusSummary, isSimulationModeActive } = await import(
+        '../src/server/liveConnectors.ts'
+      );
+      expect(isSimulationModeActive()).toBe(true);
+
+      const connectors = getConnectorStatusSummary();
+      expect(connectors.length).toBeGreaterThanOrEqual(6);
+      for (const c of connectors) {
+        expect(c.mode).not.toBe('LIVE_REST_API');
+      }
+    } finally {
+      process.env.MONOPULSE_FORCE_SIMULATION = prevForce;
+      process.env.GITHUB_TOKEN = prevGh;
+      process.env.SLACK_BOT_TOKEN = prevSlack;
+      process.env.JIRA_API_TOKEN = prevJira;
+      process.env.ARGOCD_AUTH_TOKEN = prevArgo;
+    }
+  });
 });
+

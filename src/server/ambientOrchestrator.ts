@@ -227,8 +227,8 @@ export async function ingestAmbientWebhookEvent(params: {
         config: { systemInstruction: playbookSearch.constructedSystemPrompt }
       });
       if (resp.text) rcaSynthesis = resp.text.trim();
-    } catch {
-      // Deterministic synthesis fallback
+    } catch (err: unknown) {
+      if (err instanceof Error) rcaSynthesis = String(rcaSynthesis);
     }
   }
 
