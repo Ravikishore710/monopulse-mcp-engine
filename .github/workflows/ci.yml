@@ -71,6 +71,12 @@ jobs:
             console.log("Verified all src/server/*.ts files exceed 70% line coverage.");
           '
 
+      - name: Upload coverage-summary.json artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-summary
+          path: coverage/coverage-summary.json
+
       - name: Run API integration test suite
         run: npm run test:api
 

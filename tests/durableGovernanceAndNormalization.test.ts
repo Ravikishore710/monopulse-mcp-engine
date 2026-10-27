@@ -244,5 +244,10 @@ describe('Durable Ledger, SHA-256 Hash Chain, ABAC, Multi-Vendor Webhooks & MCP 
     );
     expect(cbRes.data).toEqual({ fallback: true });
     expect(cbRes.liveExecuted).toBe(false);
+
+    // 8. Audit CSV export endpoint used by TrustAuditPanel
+    const csvRes = await request(app).get('/api/security/audit?format=csv');
+    expect(csvRes.status).toBe(200);
+    expect(csvRes.headers['content-type']).toContain('text/csv');
   });
 });
