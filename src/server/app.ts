@@ -6,7 +6,7 @@ import { MCP_SERVERS, MCP_TOOLS, WIRE_LOG } from './mcpRegistry.ts';
 import { REDIS_TIER1_STORE, PGVECTOR_PLAYBOOKS, KAGGLE_GPU_JOBS, searchPlaybooksBySemanticSimilarity, distillTrajectoryViaKaggleGPU } from './memoryEngine.ts';
 import { AMBIENT_EVENTS, ingestAmbientWebhookEvent, executeStagedApprovalBlock } from './ambientOrchestrator.ts';
 import { SQL_TABLES, GITHUB_PRS, SLACK_THREADS, JIRA_TICKETS, INTERNAL_DOCS, POD_TELEMETRY } from './sandboxData.ts';
-import { WebhookIngestSchema, EventApprovalSchema, MemorySearchSchema, KaggleDistillSchema, CliExecSchema } from './validationSchemas.ts';
+import { WebhookIngestSchema, EventApprovalSchema, MemorySearchSchema, KaggleDistillSchema, CliExecSchema } from './schemas/httpSchemas.ts';
 import { createRequestLogContext } from './logger.ts';
 import { computeWebhookSignature, createRateLimitMiddleware, resolveVerifiedCallerRole, securityHeadersMiddleware, verifyWebhookReplayWindow, verifyWebhookSignature } from './cryptoSecurity.ts';
 import { acquireEventApprovalLock, computeAndRecordWebhookFingerprint, getSqliteDatabaseSummary, releaseEventApprovalLock } from './sqliteEngine.ts';
@@ -184,7 +184,13 @@ export function createMonoPulseApp() {
           }
         : req.body;
 
-      const parsed = WebhookIngestSchema.parse(candidateBody);
+      const parsedResult = WebhookIngestSchema.safeParse(candidateBody);
+      if (!parsedResult.success) {
+        reqLogger.warn({ issues: parsedResult.error.issues }, 'Zod validation error on /api/webhooks/ingest');
+        res.status(400).json({ error: 'VALIDATION_ERROR', details: parsedResult.error.issues });
+        return;
+      }
+      const parsed = parsedResult.data;
       const dedup = computeAndRecordWebhookFingerprint(parsed);
       incrementWebhookMetric(parsed.service, dedup.deduplicated);
       const computedSignature = computeWebhookSignature(parsed);
@@ -217,11 +223,6 @@ export function createMonoPulseApp() {
         event
       });
     } catch (err: unknown) {
-      if (err instanceof ZodError) {
-        reqLogger.warn({ issues: err.issues }, 'Zod validation error on /api/webhooks/ingest');
-        res.status(400).json({ error: 'VALIDATION_ERROR', details: err.issues });
-        return;
-      }
       const message = err instanceof Error ? err.message : 'Webhook ingestion failed';
       reqLogger.error({ err: message }, 'Webhook ingestion error');
       res.status(500).json({ error: message });
@@ -230,134 +231,118 @@ export function createMonoPulseApp() {
 
   app.post('/api/events/:eventId/approve', (req, res) => {
     const reqLogger = createRequestLogContext('POST /api/events/:eventId/approve');
-    try {
-      const parsed = EventApprovalSchema.parse(req.body || {});
-      const roleCheck = resolveVerifiedCallerRole(req.header('Authorization'), parsed.callerRole);
-      const targetEvent = AMBIENT_EVENTS.find((e) => e.eventId === req.params.eventId);
-      if (
-        targetEvent &&
-        (targetEvent.approvalState === 'APPROVED_AND_EXECUTED' ||
-          targetEvent.approvalState === 'EDITED_AND_EXECUTED')
-      ) {
-        res.status(409).json({
-          status: 'APPROVAL_ALREADY_EXECUTED',
-          error: `Event '${req.params.eventId}' has already been approved and executed.`
-        });
-        return;
-      }
-
-      const locked = acquireEventApprovalLock(req.params.eventId, roleCheck.role);
-      if (!locked) {
-        res.status(409).json({
-          status: 'APPROVAL_ALREADY_EXECUTED',
-          error: `Concurrent approval lock active for '${req.params.eventId}'.`
-        });
-        return;
-      }
-
-      const outcome = executeStagedApprovalBlock({
-        eventId: req.params.eventId,
-        callerRole: roleCheck.role,
-        editedMutations: parsed.editedMutations as { id: string; args: Record<string, any> }[] | undefined
-      });
-
-      if (!outcome.success) {
-        releaseEventApprovalLock(req.params.eventId);
-      } else {
-        persistAmbientEventToSqlite({ ...outcome.event, status: outcome.event.approvalState });
-      }
-
-      const postRemediationVerification = outcome.success
-        ? {
-            verified: true,
-            probeTool: 'infra_get_pod_telemetry',
-            errorRateBeforePct: 14.8,
-            errorRateAfterPct: 0.12,
-            p99LatencyAfterMs: 92,
-            status: 'SLO_RESTORED'
-          }
-        : null;
-
-      broadcastSseEvent('approval.executed', {
-        eventId: req.params.eventId,
-        callerRole: roleCheck.role,
-        success: outcome.success
-      });
-      reqLogger.info({ eventId: req.params.eventId, callerRole: roleCheck.role, success: outcome.success }, 'Processed 1-Click Approval Block');
-      res.json({ ...outcome, postRemediationVerification });
-    } catch (err: unknown) {
-      if (err instanceof ZodError) {
-        res.status(400).json({ error: 'VALIDATION_ERROR', details: err.issues });
-        return;
-      }
-      const message = err instanceof Error ? err.message : 'Approval execution failed';
-      res.status(400).json({ error: message });
+    const parsedResult = EventApprovalSchema.safeParse(req.body || {});
+    if (!parsedResult.success) {
+      res.status(400).json({ error: 'VALIDATION_ERROR', details: parsedResult.error.issues });
+      return;
     }
+    const parsed = parsedResult.data;
+    const roleCheck = resolveVerifiedCallerRole(req.header('Authorization'), parsed.callerRole);
+    const targetEvent = AMBIENT_EVENTS.find((e) => e.eventId === req.params.eventId);
+    if (
+      targetEvent &&
+      (targetEvent.approvalState === 'APPROVED_AND_EXECUTED' ||
+        targetEvent.approvalState === 'EDITED_AND_EXECUTED')
+    ) {
+      res.status(409).json({
+        status: 'APPROVAL_ALREADY_EXECUTED',
+        error: `Event '${req.params.eventId}' has already been approved and executed.`
+      });
+      return;
+    }
+
+    const locked = acquireEventApprovalLock(req.params.eventId, roleCheck.role);
+    if (!locked) {
+      res.status(409).json({
+        status: 'APPROVAL_ALREADY_EXECUTED',
+        error: `Concurrent approval lock active for '${req.params.eventId}'.`
+      });
+      return;
+    }
+
+    const outcome = executeStagedApprovalBlock({
+      eventId: req.params.eventId,
+      callerRole: roleCheck.role,
+      editedMutations: parsed.editedMutations as { id: string; args: Record<string, any> }[] | undefined
+    });
+
+    if (!outcome.success) {
+      releaseEventApprovalLock(req.params.eventId);
+    } else {
+      persistAmbientEventToSqlite({ ...outcome.event, status: outcome.event.approvalState });
+    }
+
+    const postRemediationVerification = outcome.success
+      ? {
+          verified: true,
+          probeTool: 'infra_get_pod_telemetry',
+          errorRateBeforePct: 14.8,
+          errorRateAfterPct: 0.12,
+          p99LatencyAfterMs: 92,
+          status: 'SLO_RESTORED'
+        }
+      : null;
+
+    broadcastSseEvent('approval.executed', {
+      eventId: req.params.eventId,
+      callerRole: roleCheck.role,
+      success: outcome.success
+    });
+    reqLogger.info({ eventId: req.params.eventId, callerRole: roleCheck.role, success: outcome.success }, 'Processed 1-Click Approval Block');
+    res.json({ ...outcome, postRemediationVerification });
   });
 
   app.post('/api/memory/search', async (req, res) => {
     const reqLogger = createRequestLogContext('POST /api/memory/search');
-    try {
-      const parsed = MemorySearchSchema.parse(req.body);
-      const result = await searchPlaybooksBySemanticSimilarity(parsed.query, parsed.topK);
-      reqLogger.info({ topPlaybook: result.matches[0]?.playbook.id, model: result.embeddingModelUsed }, 'Executed pgvector semantic similarity search');
-      res.json(result);
-    } catch (err: unknown) {
-      if (err instanceof ZodError) {
-        reqLogger.warn({ issues: err.issues }, 'Zod validation error on /api/memory/search');
-        res.status(400).json({ error: 'VALIDATION_ERROR', details: err.issues });
-        return;
-      }
-      const message = err instanceof Error ? err.message : 'Semantic search failed';
-      res.status(500).json({ error: message });
+    const parsedResult = MemorySearchSchema.safeParse(req.body);
+    if (!parsedResult.success) {
+      reqLogger.warn({ issues: parsedResult.error.issues }, 'Zod validation error on /api/memory/search');
+      res.status(400).json({ error: 'VALIDATION_ERROR', details: parsedResult.error.issues });
+      return;
     }
+    const parsed = parsedResult.data;
+    const result = await searchPlaybooksBySemanticSimilarity(parsed.query, parsed.topK);
+    reqLogger.info({ topPlaybook: result.matches[0]?.playbook.id, model: result.embeddingModelUsed }, 'Executed pgvector semantic similarity search');
+    res.json(result);
   });
 
   app.post('/api/kaggle/distill', async (req, res) => {
     const reqLogger = createRequestLogContext('POST /api/kaggle/distill');
-    try {
-      const parsed = KaggleDistillSchema.parse(req.body || {});
-      const sourceEvent = AMBIENT_EVENTS.find((e) => e.eventId === parsed.eventId) || AMBIENT_EVENTS[0];
-      const executedTools = [
-        ...sourceEvent.autonomousReadOnlyTrace.map((t) => ({ toolName: t.toolName, args: t.args, outcomeSummary: t.findingSummary })),
-        ...sourceEvent.stagedMutations.map((m) => ({ toolName: m.toolName, args: m.args, outcomeSummary: m.description }))
-      ];
-
-      const outcome = await distillTrajectoryViaKaggleGPU({
-        trajectoryId: `traj-${sourceEvent.eventId}`,
-        incidentSummary: parsed.customIncidentSummary || sourceEvent.incomingPayloadSummary,
-        service: parsed.customService || sourceEvent.service,
-        executedTools
-      });
-
-      broadcastSseEvent('playbook.distilled', { jobId: outcome.job.jobId, playbookId: outcome.newPlaybook.id });
-      reqLogger.info({ jobId: outcome.job.jobId, extractedPlaybookId: outcome.newPlaybook.id }, 'Completed Kaggle GPU trajectory distillation');
-      res.json(outcome);
-    } catch (err: unknown) {
-      if (err instanceof ZodError) {
-        res.status(400).json({ error: 'VALIDATION_ERROR', details: err.issues });
-        return;
-      }
-      const message = err instanceof Error ? err.message : 'Kaggle GPU distillation failed';
-      res.status(500).json({ error: message });
+    const parsedResult = KaggleDistillSchema.safeParse(req.body || {});
+    if (!parsedResult.success) {
+      res.status(400).json({ error: 'VALIDATION_ERROR', details: parsedResult.error.issues });
+      return;
     }
+    const parsed = parsedResult.data;
+    const sourceEvent = AMBIENT_EVENTS.find((e) => e.eventId === parsed.eventId) || AMBIENT_EVENTS[0];
+    const executedTools = [
+      ...sourceEvent.autonomousReadOnlyTrace.map((t) => ({ toolName: t.toolName, args: t.args, outcomeSummary: t.findingSummary })),
+      ...sourceEvent.stagedMutations.map((m) => ({ toolName: m.toolName, args: m.args, outcomeSummary: m.description }))
+    ];
+
+    const outcome = await distillTrajectoryViaKaggleGPU({
+      trajectoryId: `traj-${sourceEvent.eventId}`,
+      incidentSummary: parsed.customIncidentSummary || sourceEvent.incomingPayloadSummary,
+      service: parsed.customService || sourceEvent.service,
+      executedTools
+    });
+
+    broadcastSseEvent('playbook.distilled', { jobId: outcome.job.jobId, playbookId: outcome.newPlaybook.id });
+    reqLogger.info({ jobId: outcome.job.jobId, extractedPlaybookId: outcome.newPlaybook.id }, 'Completed Kaggle GPU trajectory distillation');
+    res.json(outcome);
   });
 
   app.post('/api/cli/exec', async (req, res) => {
     const reqLogger = createRequestLogContext('POST /api/cli/exec');
-    try {
-      const parsed = CliExecSchema.parse(req.body);
-      reqLogger.info({ command: parsed.command, callerRole: parsed.callerRole }, 'Executing CLI harness command');
-      const outcome = await processCliCommand(parsed.command, parsed.callerRole);
-      res.json(outcome);
-    } catch (err: unknown) {
-      if (err instanceof ZodError) {
-        res.status(400).json({ error: 'VALIDATION_ERROR', details: err.issues });
-        return;
-      }
-      const message = err instanceof Error ? err.message : 'CLI execution failed';
-      res.status(500).json({ command: req.body?.command, exitCode: 1, output: message });
+    const parsedResult = CliExecSchema.safeParse(req.body);
+    if (!parsedResult.success) {
+      res.status(400).json({ error: 'VALIDATION_ERROR', details: parsedResult.error.issues });
+      return;
     }
+    const parsed = parsedResult.data;
+    reqLogger.info({ command: parsed.command, callerRole: parsed.callerRole }, 'Executing CLI harness command');
+    const outcome = await processCliCommand(parsed.command, parsed.callerRole);
+    res.json(outcome);
   });
 
   app.use(createSecurityAndGovernanceRouter());
@@ -375,4 +360,3 @@ export function createMonoPulseApp() {
 
   return app;
 }
-

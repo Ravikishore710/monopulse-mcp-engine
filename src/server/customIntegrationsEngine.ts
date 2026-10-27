@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { ingestAmbientWebhookEvent } from './ambientOrchestrator.ts';
 import { broadcastSseEvent } from './observabilityEngine.ts';
+import { IntegrationCreateSchema } from './schemas/httpSchemas.ts';
 
 export type IntegrationCategory =
   | 'Observability & APM'
@@ -210,25 +211,27 @@ export function createCustomIntegrationsRouter(): Router {
   });
 
   router.post('/api/integrations', (req, res) => {
-    const body = req.body || {};
-    const name = String(body.name || '').trim();
-    const provider = String(body.provider || name || 'Custom Provider').trim();
-    const endpointUrl = String(body.endpointUrl || 'https://api.example.com/webhooks/monopulse').trim();
-    if (!name || name.length < 2) {
-      res.status(400).json({ error: 'Integration name must be at least 2 characters.' });
+    const parsed = IntegrationCreateSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      res.status(400).json({ error: 'VALIDATION_ERROR', details: parsed.error.issues });
       return;
     }
-
-    const category: IntegrationCategory = body.category || 'Custom Webhook / MCP';
-    const protocol: IntegrationProtocol = body.protocol || 'REST Webhook (HMAC-SHA256)';
-    const authMethod = body.authMethod || 'HMAC-SHA256 Secret';
-    const mappedService =
-      body.mappedService === 'webhook-dispatcher-v2'
-        ? 'webhook-dispatcher-v2'
-        : 'checkout-ledger-svc';
-    const subscribedEvents = Array.isArray(body.subscribedEvents) && body.subscribedEvents.length > 0
-      ? body.subscribedEvents.map(String)
-      : ['custom.alert.fired', 'service.anomaly.detected'];
+    const {
+      name,
+      provider: rawProvider,
+      category,
+      protocol,
+      endpointUrl,
+      authMethod,
+      mappedService,
+      subscribedEvents: rawEvents,
+      toolsCount
+    } = parsed.data;
+    const provider = rawProvider || name;
+    const subscribedEvents =
+      Array.isArray(rawEvents) && rawEvents.length > 0
+        ? rawEvents
+        : ['custom.alert.fired', 'service.anomaly.detected'];
 
     const created: CustomIntegrationRecord = {
       id: `int-custom-${Date.now().toString().slice(-5)}`,
@@ -241,7 +244,7 @@ export function createCustomIntegrationsRouter(): Router {
       authMethod,
       subscribedEvents,
       mappedService,
-      toolsCount: Number(body.toolsCount) || 2,
+      toolsCount,
       lastVerifiedAt: new Date().toISOString(),
       lastLatencyMs: 28,
       isBuiltIn: false

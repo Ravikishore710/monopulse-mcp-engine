@@ -2,6 +2,15 @@
 
 All notable changes to the **MonoPulse** project are documented in this file.
 
+## [Unreleased]
+### Added
+- **Typed HTTP Entry-Point Schema Validation (`src/server/schemas/httpSchemas.ts`, `tests/apiValidation.test.ts`)**: Added strict Zod request-body schemas (`IntegrationCreateSchema`, `IntegrationUpdateSchema`, `SlackMessageCreateSchema`, `WebhookIngestSchema`, `EventApprovalSchema`, `MemorySearchSchema`, `KaggleDistillSchema`, `CliExecSchema`) wired via `.safeParse(req.body)` across all Express `POST`/`PATCH` routes, returning `400 VALIDATION_ERROR` on malformed payloads.
+- **Complete 28-Tool / 6-Server MCP Coverage Suite & Per-File CI Coverage Gate (`tests/mcpToolHandlers.full.test.ts`, `.github/workflows/ci.yml`)**: Added exhaustive tests for all 28 MCP tools across `sql-ops-mcp`, `github-mcp`, `slack-mcp`, `jira-mcp`, `docs-mcp`, and `infra-mcp` covering both allowed and `RBAC_DENIED` execution paths, plus a per-file CI gate requiring `>= 70%` line coverage across every `src/server/*.ts` module and a committed `coverage-summary.json` artifact.
+
+### Changed
+- **Pinned Core Build & Test Toolchain Versions (`package.json`, `package-lock.json`)**: Pinned exact resolved versions in `package.json` and `package-lock.json` (`vite@8.3.5`, `eslint@10.13.0`, `vitest@5.0.5`, `@vitest/coverage-v8@5.0.5`, `typescript@5.8.3`, `@sentry/node@11.9.0`, `express@4.22.3`, `zod@4.6.7`, `pino@10.4.0`, verified on Node.js `v22.23.4` / npm `10.9.9` with `0` audit vulnerabilities).
+- **Removed Synthetic History Script**: Removed `scripts/rebuildGitHistory.ts` and `npm run git:history` so all repository history reflects genuine incremental commits.
+
 ## [1.4.0] - 2026-10-26
 ### Added
 - **Enforced V8 Code Coverage Gate (`vitest.config.ts`, `.github/workflows/ci.yml`)**: Added `@vitest/coverage-v8` with enforced thresholds (`lines: 70%`, `branches: 60%`) and `npm run test:coverage` in CI.

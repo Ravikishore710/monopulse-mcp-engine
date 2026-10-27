@@ -12,7 +12,7 @@ Instead of operating as a slow synchronous chatbot, MonoPulse runs an **ambient,
 
 ### 1. Custom MCP Tool Surface (6 Servers · 28 Deterministic Tools · MCP `2024-11-05`)
 Every MCP `tools/call` invocation passes through a deterministic security gatekeeper (`src/server/mcpRegistry.ts`) before reaching any handler (`src/server/mcpToolHandlers.ts`):
-1. **Strict Draft-07 JSON Schema Validation** (`additionalProperties: false`, required fields, enum & numeric range checks).
+1. **Strict Draft-07 JSON Schema & HTTP Zod Validation** (`src/server/schemas/httpSchemas.ts` validates every HTTP `POST`/`PATCH` body via `.safeParse()`, and `src/server/mcpRegistry.ts` enforces `additionalProperties: false`, required fields, enum & numeric range checks on every MCP tool call).
 2. **Granular Role-Based Access Control (RBAC)** (`sre_admin`, `eng_lead`, `support_tier2`, `readonly_analyst`) + cryptographic Bearer token verification (`src/server/cryptoSecurity.ts`).
 3. **AST / Multi-Statement Read-Only SQL Guard & `PRAGMA query_only = ON`** (`sql-ops-mcp` blocks `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `TRUNCATE`, `ATTACH`, and stacked semicolon statements at the protocol boundary).
 4. **Full MCP `2024-11-05` Lifecycle**: Supports `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel`, `completion/complete`, and JSON-RPC 2.0 batch arrays.
@@ -31,9 +31,9 @@ Every MCP `tools/call` invocation passes through a deterministic security gateke
 - **Tier-2 Semantic Playbook Vault (`pgvector` + BM25 Hybrid RRF + `gemini-embedding-2-preview`)**: Stores distilled Markdown Playbook skills indexed with vector embeddings and dynamically injects top-$k$ matched playbooks into the system prompt—reducing average steps-to-completion by **38%**.
 - **Kaggle GPU Compute Bridge & Recharts Telemetry (`src/components/KaggleGpuDashboard.tsx`)**: Offloads multi-step trajectory distillation (`NVIDIA_T4_X2`) and visualizes real-time GPU SM/VRAM utilization, kernel execution throughput (`trajectories/sec`), and distillation step-compression metrics inside `MemoryPanel`.
 
-### 3. Ambient Event-Driven Pre-Computation, Cryptographic Audit & Governance
+### 3. Durable SQLite Persistence, Cryptographic Audit & Governance
+- **Embedded `node:sqlite` Relational & Audit Store (`src/server/sqliteEngine.ts`, `src/server/durableLedger.ts`)**: Persists `ambient_events_ledger`, `audit_hash_chain`, `operator_quorum_signatures`, `dead_letter_queue`, `event_approval_locks`, `webhook_dedup_fingerprints`, `deployments`, `service_incidents`, `customer_orgs`, `feature_flags`, and `db_replication_status` in `.data/monopulse.sqlite`.
 - **HMAC-SHA256 Webhook Verification & Replay Protection**: Validates `X-MonoPulse-Signature-256` with `crypto.timingSafeEqual` and 300s replay windows (`X-MonoPulse-Timestamp`).
-- **Tamper-Evident SHA-256 Audit Hash Chain & DLQ (`src/server/durableLedger.ts`)**: Chains every MCP wire execution frame cryptographically in SQLite (`GET /api/security/hash-chain/verify`) and isolates failed mutations in a Dead-Letter Queue (`GET /api/security/dlq`).
 - **Observability, Error Tracking & OpenAPI 3.1**: Exposes Kubernetes liveness/readiness probes (`/api/health/live`, `/api/health/ready`), Prometheus histograms (`GET /api/metrics`), Server-Sent Events (`GET /api/events/stream`), OpenAPI 3.1 (`GET /api/openapi.json`), and structured error reporting via `@sentry/node` (`SENTRY_DSN`) with automatic `pino` structured log fallback.
 
 ---
@@ -43,6 +43,7 @@ Every MCP `tools/call` invocation passes through a deterministic security gateke
 The test suite (`npm test` / `vitest`) **never makes external network calls** to GitHub, Slack, Jira, ArgoCD, Sentry, or Gemini.
 - `tests/setup.ts` automatically enforces `MONOPULSE_FORCE_SIMULATION=true` at test startup and throws a fast-fail error if any live external API token (`GITHUB_TOKEN`, `SLACK_BOT_TOKEN`, `JIRA_API_TOKEN`, `ARGOCD_AUTH_TOKEN`) is present in the test environment.
 - `isSimulationModeActive()` in `src/server/liveConnectors.ts` also defaults to `true` whenever `NODE_ENV === 'test'` and no external tokens are set.
+- `coverage-summary.json` is committed in the repository root and verified in CI so every `src/server/*.ts` module maintains `>= 70%` line coverage.
 
 | Variable | Default / Required | Description |
 | :--- | :--- | :--- |
@@ -59,10 +60,11 @@ The test suite (`npm test` / `vitest`) **never makes external network calls** to
 
 ## Quick Start (Install, Test, Build & Run)
 
+> **Runtime Requirement**: Requires **Node.js `22.x`** (verified on `v22.23.4`) and **npm `10.x`** (verified on `10.9.9`), matching the `.github/workflows/ci.yml` build matrix.
+
 ### 1. Cold-Clone Smoke Test (Clean Install, Lint, Isolated Test Suite & Build)
 ```bash
-export MONOPULSE_FORCE_SIMULATION=true
-bash scripts/smoke-test.sh
+rm -rf node_modules dist && npm ci && MONOPULSE_FORCE_SIMULATION=true bash scripts/smoke-test.sh
 ```
 
 ### 2. Standard Development Workflow
@@ -71,8 +73,8 @@ cp .env.example .env
 npm ci
 npm run lint          # TypeScript strict typecheck (tsc --noEmit)
 npm run lint:eslint   # ESLint static analysis (--max-warnings=0)
-npm run test          # Vitest unit, UI & Supertest API integration suite (15 test files)
-npm run test:coverage # V8 coverage enforcement (lines >= 70%, branches >= 60%)
+npm run test          # Vitest unit, UI & Supertest API integration suite (17 test files)
+npm run test:coverage # V8 coverage enforcement (lines >= 70%, branches >= 60%, all src/server/*.ts >= 70%)
 npm run build         # Vite production bundle build
 npm run dev           # Start Express + Vite on http://localhost:3000
 ```

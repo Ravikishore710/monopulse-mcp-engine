@@ -7,6 +7,7 @@ import { acquireEventApprovalLock, releaseEventApprovalLock } from './sqliteEngi
 import { persistAmbientEventToSqlite, recordQuorumApprovalSignature } from './durableLedger.ts';
 import { verifyLiveExternalConnectors } from './liveConnectors.ts';
 import { broadcastSseEvent } from './observabilityEngine.ts';
+import { SlackMessageCreateSchema } from './schemas/httpSchemas.ts';
 
 export interface SlackDummyUser {
   id: string;
@@ -141,18 +142,12 @@ export function createSlackWorkspaceRouter(): Router {
 
   router.post('/api/slack/messages', async (req, res) => {
     ensureExtraSlackChannelsSeeded();
-    const {
-      channelId = 'C04INCIDENTS',
-      userHandle = 'ravi.kishore',
-      text = '',
-      triggerAmbientPrecompute = false,
-      service = 'checkout-ledger-svc'
-    } = req.body || {};
-
-    if (!String(text).trim()) {
-      res.status(400).json({ error: 'Slack message text cannot be empty' });
+    const parsed = SlackMessageCreateSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      res.status(400).json({ error: 'VALIDATION_ERROR', details: parsed.error.issues });
       return;
     }
+    const { channelId, userHandle, text, triggerAmbientPrecompute, service } = parsed.data;
 
     const userObj = SLACK_DUMMY_USERS.find((u) => u.handle === userHandle) || SLACK_DUMMY_USERS[0];
     const thread = SLACK_THREADS.find((t) => t.channel_id === channelId) || SLACK_THREADS[0];
@@ -162,7 +157,7 @@ export function createSlackWorkspaceRouter(): Router {
       user: userObj.handle,
       role: userObj.role,
       ts,
-      text: String(text).trim()
+      text
     };
     thread.messages.push(newMsg);
 

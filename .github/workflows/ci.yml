@@ -41,19 +41,35 @@ jobs:
           fi
 
       - name: Run TypeScript typecheck
-        run: tsc --noEmit
+        run: npm run lint
 
       - name: Run ESLint static analysis
         run: npm run lint:eslint
 
       - name: Run automated test suite (vitest)
-        run: npx vitest run
-
-      - name: Run npm test
         run: npm test
 
       - name: Run coverage with threshold
         run: npm run test:coverage
+
+      - name: Enforce >= 70% per-file line coverage for src/server/*.ts
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const summary = JSON.parse(fs.readFileSync("coverage/coverage-summary.json", "utf8"));
+            const failed = [];
+            for (const [file, metrics] of Object.entries(summary)) {
+              if (file.includes("/src/server/") && file.endsWith(".ts")) {
+                const pct = metrics.lines.pct;
+                if (pct < 70) failed.push(`${file}: ${pct}% (< 70%)`);
+              }
+            }
+            if (failed.length > 0) {
+              console.error("Per-file server coverage gate failed:\n" + failed.join("\n"));
+              process.exit(1);
+            }
+            console.log("Verified all src/server/*.ts files exceed 70% line coverage.");
+          '
 
       - name: Run API integration test suite
         run: npm run test:api
