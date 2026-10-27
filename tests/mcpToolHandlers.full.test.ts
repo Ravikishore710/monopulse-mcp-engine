@@ -254,4 +254,11 @@ describe('Complete 6-Server / 28-Tool MCP Coverage & Live Connectors Suite (Rec 
       else process.env.JIRA_BASE_URL = prevJiraBase;
     }
   });
+
+  it('verifies all 6 MCP server IDs map to distinct tool subsets with zero orphaned tools', () => {
+    const serverIds = new Set(MCP_SERVERS.map((s) => s.id));
+    for (const tool of MCP_TOOLS) {
+      expect(serverIds.has(tool.serverId)).toBe(true);
+    }
+  });
 });

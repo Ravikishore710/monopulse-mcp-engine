@@ -76,4 +76,11 @@ describe('Two-Tier Memory Engine & Kaggle GPU Playbook Extractor', () => {
     expect(PGVECTOR_PLAYBOOKS.length).toBe(initialCount + 1);
     expect(outcome.newPlaybook.targetServices).toContain('checkout-ledger-svc');
   });
+
+  it('handles zero-norm vectors safely and respects topK limit on semantic playbook search', async () => {
+    expect(cosineSimilarity([0, 0, 0], [1, 2, 3])).toBe(0);
+    const res = await searchPlaybooksBySemanticSimilarity('TLS handshake timeout eu-central-1', 1);
+    expect(res.matches).toHaveLength(1);
+    expect(res.queryVectorPreview).toHaveLength(8);
+  });
 });

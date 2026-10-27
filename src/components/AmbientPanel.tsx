@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Check, ChevronDown, ChevronUp, Cpu, Edit3, Search, ShieldCheck } from 'lucide-react';
 import { AmbientEventRecord, RBACRole } from '../types/monopulse.ts';
+import { useApiAction } from '../hooks/useApiAction.ts';
+import { THEME } from '../theme.ts';
 
 interface AmbientPanelProps {
   events: AmbientEventRecord[];
@@ -50,12 +52,12 @@ export function AmbientPanel({
   const [isEditingBlock, setIsEditingBlock] = useState(false);
   const [approvalFeedback, setApprovalFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [quorumOperator, setQuorumOperator] = useState<string>('ravi.kishore');
-  const [quorumState, setQuorumState] = useState<{
+  const { data: quorumState, setData: setQuorumState, runAction: runQuorumSign } = useApiAction<{
     signaturesCollected: number;
     requiredSignatures: number;
     quorumMet: boolean;
     signers: string[];
-  } | null>(null);
+  }>();
 
   const getIncidentCategory = (evt: AmbientEventRecord): 'Pending' | 'In-Progress' | 'Resolved' => {
     if (evt.approvalState === 'APPROVED_AND_EXECUTED' || evt.approvalState === 'EDITED_AND_EXECUTED' || evt.status === 'REMEDIATION_EXECUTED') {
@@ -89,12 +91,10 @@ export function AmbientPanel({
   const handleSignQuorum = async (operatorId: string) => {
     if (!selectedEvent) return;
     setInProgressIds((prev) => ({ ...prev, [selectedEvent.eventId]: true }));
-    const res = await fetch(`/api/events/${selectedEvent.eventId}/quorum-sign`, {
+    await runQuorumSign(`/api/events/${selectedEvent.eventId}/quorum-sign`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ operatorId, callerRole })
+      body: { operatorId, callerRole }
     });
-    setQuorumState(await res.json());
     if (onRefreshSystemState) await onRefreshSystemState();
   };
 
@@ -125,7 +125,7 @@ export function AmbientPanel({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#1F2937] pb-4">
+      <div className={`flex flex-col md:flex-row md:items-center justify-between gap-4 ${THEME.HEADER_BORDER}`}>
         <div>
           <h1 className="text-lg font-semibold tracking-tight text-[#F9FAFB] font-display">Incident Triage &amp; Remediation Queue</h1>
           <p className="text-xs text-[#9CA3AF] mt-0.5">
@@ -144,7 +144,7 @@ export function AmbientPanel({
             <option value="in_progress">In-Progress</option>
             <option value="resolved">Resolved</option>
           </select>
-          <div className="flex items-center gap-1 p-1 bg-[#111827] border border-[#1F2937] rounded-lg">
+          <div className={`flex items-center gap-1 p-1 ${THEME.SURFACE_CARD}`}>
             {([
               { id: 'all', label: 'All' },
               { id: 'pending', label: 'Pending' },
