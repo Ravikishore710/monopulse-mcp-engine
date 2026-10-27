@@ -64,4 +64,17 @@ describe('Ambient Event-Driven Pre-Computation & 1-Click Approval Workflow', () 
     expect(res.event.approvalState).toBe('EDITED_AND_EXECUTED');
     expect(res.event.approvedByRole).toBe('sre_admin');
   });
+
+  it('pre-computes git blame diagnostic trace for webhook-dispatcher-v2 and guards unknown event IDs', async () => {
+    const evt = await ingestAmbientWebhookEvent({
+      source: 'jira.issue.created',
+      service: 'webhook-dispatcher-v2',
+      channelOrTicket: 'OPS-4819',
+      payloadSummary: 'Cross-region EU TLS handshake timeout regression'
+    });
+    expect(evt.autonomousReadOnlyTrace[0].toolName).toBe('github_blame_file_range');
+    expect(() =>
+      executeStagedApprovalBlock({ eventId: 'evt-non-existent-000', callerRole: 'sre_admin' })
+    ).toThrow(/not found/i);
+  });
 });
