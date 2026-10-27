@@ -27,6 +27,18 @@ export function isSimulationModeActive(): boolean {
   if (process.env.MONOPULSE_FORCE_SIMULATION === 'true') {
     return true;
   }
+  if (process.env.MONOPULSE_FORCE_SIMULATION === 'false') {
+    return simulationModeActive;
+  }
+  if (
+    process.env.NODE_ENV === 'test' &&
+    !process.env.GITHUB_TOKEN &&
+    !process.env.SLACK_BOT_TOKEN &&
+    !process.env.JIRA_API_TOKEN &&
+    !process.env.ARGOCD_AUTH_TOKEN
+  ) {
+    return true;
+  }
   return simulationModeActive;
 }
 
@@ -36,11 +48,7 @@ export function setSimulationModeActive(enabled: boolean): boolean {
 }
 
 export function getConnectorCircuitState(serverId: string): CircuitBreakerRecord {
-  const existing = circuitBreakers.get(serverId) || {
-    state: 'CLOSED',
-    failures: 0,
-    openedAt: 0
-  };
+  const existing = circuitBreakers.get(serverId) || { state: 'CLOSED', failures: 0, openedAt: 0 };
   if (existing.state === 'OPEN' && Date.now() - existing.openedAt > COOLDOWN_MS) {
     existing.state = 'HALF_OPEN';
   }
@@ -72,33 +80,18 @@ export async function executeWithRetryAndCircuitBreaker<T>(
   maxRetries = 2
 ): Promise<{ data: T; liveExecuted: boolean; attempts: number; circuitState: string }> {
   if (isSimulationModeActive()) {
-    return {
-      data: fallback(),
-      liveExecuted: false,
-      attempts: 0,
-      circuitState: 'CLOSED'
-    };
+    return { data: fallback(), liveExecuted: false, attempts: 0, circuitState: 'CLOSED' };
   }
   const breaker = getConnectorCircuitState(serverId);
   if (breaker.state === 'OPEN') {
-    return {
-      data: fallback(),
-      liveExecuted: false,
-      attempts: 0,
-      circuitState: 'OPEN'
-    };
+    return { data: fallback(), liveExecuted: false, attempts: 0, circuitState: 'OPEN' };
   }
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const result = await operation();
       recordConnectorSuccess(serverId);
-      return {
-        data: result,
-        liveExecuted: true,
-        attempts: attempt,
-        circuitState: 'CLOSED'
-      };
+      return { data: result, liveExecuted: true, attempts: attempt, circuitState: 'CLOSED' };
     } catch (_retryErr: unknown) {
       if (attempt < maxRetries) {
         const baseDelay = 25 * Math.pow(2, attempt - 1);
@@ -109,16 +102,11 @@ export async function executeWithRetryAndCircuitBreaker<T>(
   }
 
   const updated = recordConnectorFailure(serverId);
-  return {
-    data: fallback(),
-    liveExecuted: false,
-    attempts: maxRetries,
-    circuitState: updated.state
-  };
+  return { data: fallback(), liveExecuted: false, attempts: maxRetries, circuitState: updated.state };
 }
 
 export function getConnectorStatusSummary(): ConnectorStatus[] {
-  const forceSim = process.env.MONOPULSE_FORCE_SIMULATION === 'true' || simulationModeActive;
+  const forceSim = isSimulationModeActive();
   const ghLive = !forceSim && Boolean(process.env.GITHUB_TOKEN);
   const slackLive = !forceSim && Boolean(process.env.SLACK_BOT_TOKEN);
   const jiraLive = !forceSim && Boolean(process.env.JIRA_API_TOKEN);
@@ -134,31 +122,23 @@ export function getConnectorStatusSummary(): ConnectorStatus[] {
     {
       serverId: 'github-mcp',
       provider: 'GitHub REST API v3',
-      mode: (ghLive ? 'LIVE_REST_API' : 'DETERMINISTIC_FALLBACK') as
-        | 'LIVE_REST_API'
-        | 'DETERMINISTIC_FALLBACK',
+      mode: (ghLive ? 'LIVE_REST_API' : 'DETERMINISTIC_FALLBACK') as 'LIVE_REST_API' | 'DETERMINISTIC_FALLBACK',
       envVarConfigured: Boolean(process.env.GITHUB_TOKEN),
       endpointBase: forceSim ? 'mock://github-sandbox' : 'https://api.github.com'
     },
     {
       serverId: 'slack-mcp',
       provider: 'Slack Web API',
-      mode: (slackLive ? 'LIVE_REST_API' : 'DETERMINISTIC_FALLBACK') as
-        | 'LIVE_REST_API'
-        | 'DETERMINISTIC_FALLBACK',
+      mode: (slackLive ? 'LIVE_REST_API' : 'DETERMINISTIC_FALLBACK') as 'LIVE_REST_API' | 'DETERMINISTIC_FALLBACK',
       envVarConfigured: Boolean(process.env.SLACK_BOT_TOKEN),
       endpointBase: forceSim ? 'mock://slack-sandbox' : 'https://slack.com/api'
     },
     {
       serverId: 'jira-mcp',
       provider: 'Atlassian Jira Cloud REST v3',
-      mode: (jiraLive ? 'LIVE_REST_API' : 'DETERMINISTIC_FALLBACK') as
-        | 'LIVE_REST_API'
-        | 'DETERMINISTIC_FALLBACK',
+      mode: (jiraLive ? 'LIVE_REST_API' : 'DETERMINISTIC_FALLBACK') as 'LIVE_REST_API' | 'DETERMINISTIC_FALLBACK',
       envVarConfigured: Boolean(process.env.JIRA_API_TOKEN),
-      endpointBase: forceSim
-        ? 'mock://jira-sandbox'
-        : process.env.JIRA_BASE_URL || 'https://api.atlassian.com'
+      endpointBase: forceSim ? 'mock://jira-sandbox' : process.env.JIRA_BASE_URL || 'https://api.atlassian.com'
     },
     {
       serverId: 'docs-runbook-mcp',
@@ -170,23 +150,15 @@ export function getConnectorStatusSummary(): ConnectorStatus[] {
     {
       serverId: 'infra-deploy-mcp',
       provider: 'ArgoCD & Feature-Flag Control Plane',
-      mode: (argoLive ? 'LIVE_REST_API' : 'SQLITE_EMBEDDED_ENGINE') as
-        | 'LIVE_REST_API'
-        | 'SQLITE_EMBEDDED_ENGINE',
+      mode: (argoLive ? 'LIVE_REST_API' : 'SQLITE_EMBEDDED_ENGINE') as 'LIVE_REST_API' | 'SQLITE_EMBEDDED_ENGINE',
       envVarConfigured: Boolean(process.env.ARGOCD_AUTH_TOKEN),
-      endpointBase: forceSim
-        ? 'mock://argocd-sandbox'
-        : process.env.ARGOCD_SERVER_URL || 'internal://argocd-controller'
+      endpointBase: forceSim ? 'mock://argocd-sandbox' : process.env.ARGOCD_SERVER_URL || 'internal://argocd-controller'
     }
   ];
 
   return raw.map((item) => {
     const cb = getConnectorCircuitState(item.serverId);
-    return {
-      ...item,
-      circuitState: cb.state,
-      consecutiveFailures: cb.failures
-    };
+    return { ...item, circuitState: cb.state, consecutiveFailures: cb.failures };
   });
 }
 
@@ -209,12 +181,10 @@ export function normalizeIncomingWebhookPayload(body: Record<string, any>): {
     return { isSlackChallenge: false, normalized: null };
   }
 
-  // 1. Slack Events API URL Verification Challenge
   if (body.type === 'url_verification' && typeof body.challenge === 'string') {
     return { isSlackChallenge: true, challenge: body.challenge, normalized: null };
   }
 
-  // 2. Prometheus Alertmanager Payload
   if (Array.isArray(body.alerts) && body.alerts.length > 0) {
     const first = body.alerts[0] || {};
     const service = String(first.labels?.service || 'checkout-ledger-svc');
@@ -235,7 +205,6 @@ export function normalizeIncomingWebhookPayload(body: Record<string, any>): {
     };
   }
 
-  // 3. PagerDuty V3 Webhook Payload
   if (body.event && typeof body.event === 'object' && body.event.event_type) {
     const pdData = body.event.data || {};
     const service = String(pdData.service?.summary || 'checkout-ledger-svc')
@@ -253,7 +222,6 @@ export function normalizeIncomingWebhookPayload(body: Record<string, any>): {
     };
   }
 
-  // 4. GitHub deployment_status Webhook
   if (body.deployment_status && typeof body.deployment_status === 'object') {
     const service = String(body.repository?.name || 'checkout-ledger-svc');
     return {
@@ -298,10 +266,7 @@ export async function verifyLiveExternalConnectors(): Promise<{
         statusCode: 200,
         detail: 'SIMULATION_MODE_ACTIVE (Mock Jira Tickets OPS-4821 & OPS-4819 — 0 production side effects)'
       },
-      slack: {
-        configured: false,
-        mode: 'SIMULATION_MOCK_SANDBOX'
-      }
+      slack: { configured: false, mode: 'SIMULATION_MOCK_SANDBOX' }
     };
   }
   const ghToken = process.env.GITHUB_TOKEN;
@@ -359,10 +324,7 @@ export async function verifyLiveExternalConnectors(): Promise<{
     try {
       const basic = Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
       const resp = await fetch(`${jiraBase}/rest/api/3/myself`, {
-        headers: {
-          Authorization: `Basic ${basic}`,
-          Accept: 'application/json'
-        }
+        headers: { Authorization: `Basic ${basic}`, Accept: 'application/json' }
       });
       if (resp.ok) {
         const me = (await resp.json()) as Record<string, any>;
@@ -399,4 +361,3 @@ export async function verifyLiveExternalConnectors(): Promise<{
     }
   };
 }
-

@@ -34,41 +34,55 @@ Every MCP `tools/call` invocation passes through a deterministic security gateke
 ### 3. Ambient Event-Driven Pre-Computation, Cryptographic Audit & Governance
 - **HMAC-SHA256 Webhook Verification & Replay Protection**: Validates `X-MonoPulse-Signature-256` with `crypto.timingSafeEqual` and 300s replay windows (`X-MonoPulse-Timestamp`).
 - **Tamper-Evident SHA-256 Audit Hash Chain & DLQ (`src/server/durableLedger.ts`)**: Chains every MCP wire execution frame cryptographically in SQLite (`GET /api/security/hash-chain/verify`) and isolates failed mutations in a Dead-Letter Queue (`GET /api/security/dlq`).
-- **Observability & OpenAPI 3.1**: Exposes Kubernetes liveness/readiness probes (`/api/health/live`, `/api/health/ready`), Prometheus histograms (`GET /api/metrics`), Server-Sent Events (`GET /api/events/stream`), and OpenAPI 3.1 (`GET /api/openapi.json`).
+- **Observability, Error Tracking & OpenAPI 3.1**: Exposes Kubernetes liveness/readiness probes (`/api/health/live`, `/api/health/ready`), Prometheus histograms (`GET /api/metrics`), Server-Sent Events (`GET /api/events/stream`), OpenAPI 3.1 (`GET /api/openapi.json`), and structured error reporting via `@sentry/node` (`SENTRY_DSN`) with automatic `pino` structured log fallback.
+
+---
+
+## Environment Variables & Deterministic Test Isolation
+
+The test suite (`npm test` / `vitest`) **never makes external network calls** to GitHub, Slack, Jira, ArgoCD, Sentry, or Gemini.
+- `tests/setup.ts` automatically enforces `MONOPULSE_FORCE_SIMULATION=true` at test startup and throws a fast-fail error if any live external API token (`GITHUB_TOKEN`, `SLACK_BOT_TOKEN`, `JIRA_API_TOKEN`, `ARGOCD_AUTH_TOKEN`) is present in the test environment.
+- `isSimulationModeActive()` in `src/server/liveConnectors.ts` also defaults to `true` whenever `NODE_ENV === 'test'` and no external tokens are set.
+
+| Variable | Default / Required | Description |
+| :--- | :--- | :--- |
+| `MONOPULSE_FORCE_SIMULATION` | `"true"` in CI/Tests | Forces all external MCP connectors into deterministic sandbox mode with zero network I/O. |
+| `SENTRY_DSN` | `""` (Optional) | Enables `@sentry/node` exception capture in Express error middleware; falls back to `pino` logs when unset. |
+| `MONOPULSE_WEBHOOK_SECRET` | Optional (has dev default) | HMAC-SHA256 secret used to verify `X-MonoPulse-Signature-256` webhook headers. |
+| `MONOPULSE_APPROVAL_SECRET` | Optional (has dev default) | HMAC-SHA256 secret used to sign and verify 1-Click remediation approval tokens. |
+| `GITHUB_TOKEN` | `""` (Optional) | Enables live `github-mcp` REST API calls when `MONOPULSE_FORCE_SIMULATION="false"`. |
+| `SLACK_BOT_TOKEN` | `""` (Optional) | Enables live `slack-mcp` Web API calls when `MONOPULSE_FORCE_SIMULATION="false"`. |
+| `JIRA_API_TOKEN` | `""` (Optional) | Enables live `jira-mcp` Cloud REST v3 calls when `MONOPULSE_FORCE_SIMULATION="false"`. |
+| `ARGOCD_AUTH_TOKEN` | `""` (Optional) | Enables live `infra-deploy-mcp` ArgoCD control plane queries when `MONOPULSE_FORCE_SIMULATION="false"`. |
 
 ---
 
 ## Quick Start (Install, Test, Build & Run)
 
-### 1. Reproducible Installation
+### 1. Cold-Clone Smoke Test (Clean Install, Lint, Isolated Test Suite & Build)
 ```bash
-npm install
+export MONOPULSE_FORCE_SIMULATION=true
+bash scripts/smoke-test.sh
 ```
 
-### 2. Configure Environment Variables
+### 2. Standard Development Workflow
 ```bash
 cp .env.example .env
-```
-
-### 3. Run Typecheck, Linter, Automated Test Suite & Production Build
-```bash
+npm ci
 npm run lint          # TypeScript strict typecheck (tsc --noEmit)
 npm run lint:eslint   # ESLint static analysis (--max-warnings=0)
-npm run test          # Vitest unit, UI & Supertest API integration suite (9 test files)
+npm run test          # Vitest unit, UI & Supertest API integration suite (15 test files)
+npm run test:coverage # V8 coverage enforcement (lines >= 70%, branches >= 60%)
 npm run build         # Vite production bundle build
+npm run dev           # Start Express + Vite on http://localhost:3000
 ```
 
-### 4. Start the Backend Engine & Live Protocol Inspector (Port 3000)
-```bash
-npm run dev
-```
-
-### 5. Run in Isolated Docker Container Sandbox
+### 3. Run in Isolated Docker Container Sandbox
 ```bash
 docker compose up --build
 ```
 
-### 6. Run the Standalone CLI Harness
+### 4. Run the Standalone CLI Harness
 ```bash
 npm run cli -- mcp list
 npm run cli -- rbac test-unauthorized

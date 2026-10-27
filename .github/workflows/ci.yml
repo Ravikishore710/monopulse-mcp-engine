@@ -28,7 +28,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Run npm audit
         run: npm audit --audit-level=high
@@ -46,8 +46,11 @@ jobs:
       - name: Run ESLint static analysis
         run: npm run lint:eslint
 
-      - name: Run automated test suite
-        run: npm run test
+      - name: Run automated test suite (vitest)
+        run: npx vitest run
+
+      - name: Run npm test
+        run: npm test
 
       - name: Run coverage with threshold
         run: npm run test:coverage
@@ -58,9 +61,27 @@ jobs:
       - name: Verify reproducible production build
         run: npm run build
 
+  cold-clone-smoke-test:
+    name: Cold-Clone Reproducibility Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Execute cold-clone smoke-test script
+        env:
+          CLEAN_NODE_MODULES: 'true'
+          MONOPULSE_FORCE_SIMULATION: 'true'
+        run: bash scripts/smoke-test.sh
+
   deploy-release-bundle:
     name: Package & Verify Production Release Artifact
-    needs: build-and-test
+    needs: [build-and-test, cold-clone-smoke-test]
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
@@ -74,11 +95,10 @@ jobs:
           cache: 'npm'
 
       - name: Install production & build dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build production client bundle
         run: npm run build
 
       - name: Verify health & stress-test harness pre-deploy
         run: npm run test:load
-

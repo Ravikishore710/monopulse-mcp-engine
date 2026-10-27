@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import * as Sentry from '@sentry/node';
 import express from 'express';
 import { ZodError } from 'zod';
 import { MCP_SERVERS, MCP_TOOLS, WIRE_LOG } from './mcpRegistry.ts';
@@ -19,6 +20,9 @@ import { createSecurityAndGovernanceRouter } from './securityAndGovernanceRouter
 export { executeSingleMcpRpcPayload };
 
 export function createMonoPulseApp() {
+  if (process.env.SENTRY_DSN) {
+    Sentry.init({ dsn: process.env.SENTRY_DSN, environment: process.env.NODE_ENV || 'development' });
+  }
   const app = express();
   app.set('trust proxy', 1);
   app.use(securityHeadersMiddleware);
@@ -358,29 +362,16 @@ export function createMonoPulseApp() {
 
   app.use(createSecurityAndGovernanceRouter());
 
-  app.use(
-    (
-      err: Error,
-      req: express.Request,
-      res: express.Response,
-      _next: express.NextFunction
-    ) => {
-      const reqLogger = createRequestLogContext(`ERROR ${req.method} ${req.path}`);
-      const callerRole = String(
-        req.header('X-Caller-Role') || req.body?.callerRole || 'anonymous'
-      );
-      incrementUnhandledErrorMetric(req.path, callerRole);
-      reqLogger.error(
-        { errStack: err.stack, route: req.path, callerRole },
-        'Unhandled Express service exception captured by error sink'
-      );
-      res.status(500).json({
-        status: 'INTERNAL_SERVER_ERROR',
-        error: err.message || 'Unhandled internal server error',
-        route: req.path
-      });
+  app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    const reqLogger = createRequestLogContext(`ERROR ${req.method} ${req.path}`);
+    const callerRole = String(req.header('X-Caller-Role') || req.body?.callerRole || 'anonymous');
+    incrementUnhandledErrorMetric(req.path, callerRole);
+    if (process.env.SENTRY_DSN) {
+      Sentry.captureException(err, { extra: { route: req.path, callerRole } });
     }
-  );
+    reqLogger.error({ errStack: err.stack, route: req.path, callerRole }, 'Unhandled Express service exception captured by error sink');
+    res.status(500).json({ status: 'INTERNAL_SERVER_ERROR', error: err.message || 'Unhandled internal server error', route: req.path });
+  });
 
   return app;
 }
